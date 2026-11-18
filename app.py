@@ -18,12 +18,12 @@ from backend.routes import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-FRONTEND_DIR = BASE_DIR / "frontend"
-STATIC_DIR = FRONTEND_DIR / "static"
+STATIC_DIR = BASE_DIR / "static"
+INDEX_FILE = BASE_DIR / "index.html"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Initializing Staff Attendance Database & Seeding Data...")
+    print("Initializing Staff Attendance Database & Seeding Baseline Data...")
     init_db()
     seed_database()
     print("Attendance System is Ready!")
@@ -33,11 +33,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Staff Attendance Management Portal",
     description="Attendance Tracking with 48-Hour Weekly Overtime/Undertime Rules, 20th–19th Cutoff & Branch Locations",
-    version="2.1.0",
+    version="2.2.0",
     lifespan=lifespan
 )
 
-# CORS
+# CORS enabled for all origins (GitHub Pages, mobile, localhost)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -55,20 +55,19 @@ app.include_router(reports.router)
 app.include_router(settings.router)
 app.include_router(sheets_sync.router)
 
-# Mount Frontend Static Assets
+# Mount Static Assets
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "healthy", "service": "Staff Attendance Management Portal", "version": "2.1.0"}
+    return {"status": "healthy", "service": "Staff Attendance Management Portal", "version": "2.2.0"}
 
 @app.get("/")
 def serve_index():
-    index_file = FRONTEND_DIR / "index.html"
-    if index_file.exists():
-        return FileResponse(str(index_file))
-    return {"message": "Attendance API running. Frontend index.html not found."}
+    if INDEX_FILE.exists():
+        return FileResponse(str(INDEX_FILE))
+    return {"message": "Attendance API running. index.html not found."}
 
 if __name__ == "__main__":
     import uvicorn

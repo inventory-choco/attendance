@@ -1,0 +1,72 @@
+/* Custom Attendance System Styles */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: #0f172a;
+    color: #f8fafc;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #1e293b;
+}
+::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}
+
+/* Print Stylesheet for Official Salary Cutoff Report */
+@media print {
+    body {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+    .no-print, header, nav, .tab-buttons, .export-bar, .modal-backdrop {
+        display: none !important;
+    }
+    .print-only {
+        display: block !important;
+    }
+    .report-table-container {
+        overflow: visible !important;
+        box-shadow: none !important;
+        border: 1px solid #000000 !important;
+    }
+    table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 9pt !important;
+    }
+    th, td {
+        border: 1px solid #cccccc !important;
+        padding: 4px 6px !important;
+        color: #000000 !important;
+    }
+    th {
+        background-color: #f1f5f9 !important;
+    }
+}
+
+/* Pulse animation for active sync */
+@keyframes syncPulse {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.spinning {
+    animation: syncPulse 1s linear infinite;
+}
+
+/* Table Sticky Headers */
+.sticky-header th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
