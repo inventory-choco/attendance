@@ -101,20 +101,39 @@ function doGet(e) {
       });
     }
 
-    // 2. Fetch Locations from 'Locations' (Branch(0) | Emr(1) | Location(2))
-    var locSheet = ss.getSheetByName("Locations");
+    // 2. Fetch Locations from 'Locations' sheet under the header 'Branch'
+    var locSheet = ss.getSheetByName("Locations") || ss.getSheetByName("locations") || ss.getSheetByName("Location") || ss.getSheetByName("Branches");
     var locList = [];
     if (locSheet) {
       var locData = locSheet.getDataRange().getValues();
-      for (var k = 1; k < locData.length; k++) {
-        var lrow = locData[k];
-        if (!lrow[0] || lrow[0].toString().trim() === "") continue;
-        locList.push({
-          id: k,
-          branch: lrow[0].toString().trim(),
-          emr: lrow[1] ? lrow[1].toString().trim() : "",
-          location: lrow[2] ? lrow[2].toString().trim() : ""
-        });
+      if (locData.length > 0) {
+        var locHeaders = locData[0];
+        var branchCol = 0;
+        var emrCol = 1;
+        var locCol = 2;
+
+        for (var c = 0; c < locHeaders.length; c++) {
+          var h = locHeaders[c] ? locHeaders[c].toString().trim().toLowerCase() : "";
+          if (h === "branch" || h === "branch name" || h === "branches") {
+            branchCol = c;
+          } else if (h === "emr" || h === "emirate") {
+            emrCol = c;
+          } else if (h === "location" || h === "city" || h === "area") {
+            locCol = c;
+          }
+        }
+
+        for (var k = 1; k < locData.length; k++) {
+          var lrow = locData[k];
+          var bName = lrow[branchCol] ? lrow[branchCol].toString().trim() : "";
+          if (!bName) continue;
+          locList.push({
+            id: k,
+            branch: bName,
+            emr: (emrCol < lrow.length && lrow[emrCol]) ? lrow[emrCol].toString().trim() : "",
+            location: (locCol < lrow.length && lrow[locCol]) ? lrow[locCol].toString().trim() : ""
+          });
+        }
       }
     }
 

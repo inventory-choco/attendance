@@ -109,11 +109,16 @@ const app = createApp({
             ).slice(0, 12);
         });
 
+        // Alphabetically sorted locations list from Locations sheet
+        const sortedLocations = computed(() => {
+            return [...locations.value].sort((a, b) => (a.branch || '').localeCompare(b.branch || ''));
+        });
+
         // Filtered locations for smart branch selector
         const matchedLocations = computed(() => {
-            if (!locationSearchQuery.value) return locations.value;
+            if (!locationSearchQuery.value) return sortedLocations.value;
             const q = locationSearchQuery.value.toLowerCase().trim();
-            return locations.value.filter(loc =>
+            return sortedLocations.value.filter(loc =>
                 (loc.branch && loc.branch.toLowerCase().includes(q)) ||
                 (loc.emr && loc.emr.toLowerCase().includes(q)) ||
                 (loc.location && loc.location.toLowerCase().includes(q))
@@ -129,7 +134,14 @@ const app = createApp({
             showStaffDropdown.value = false;
 
             if (s.allocated_to) {
-                entryForm.value.location = s.allocated_to;
+                const exactMatch = locations.value.find(l => (l.branch || '').toLowerCase() === s.allocated_to.toLowerCase());
+                if (exactMatch) {
+                    entryForm.value.location = exactMatch.branch;
+                } else if (!entryForm.value.location && locations.value.length > 0) {
+                    entryForm.value.location = locations.value[0].branch;
+                }
+            } else if (!entryForm.value.location && locations.value.length > 0) {
+                entryForm.value.location = locations.value[0].branch;
             }
         };
 
@@ -607,7 +619,14 @@ const app = createApp({
         const filteredStaffReports = computed(() => {
             if (!reportData.value || !reportData.value.staff_reports) return [];
             return reportData.value.staff_reports.filter(s => {
-                if (selectedLoc.value !== 'ALL' && s.allocated_to !== selectedLoc.value) return false;
+                if (selectedLoc.value !== 'ALL') {
+                    const sel = selectedLoc.value.toLowerCase().trim();
+                    const staffAlloc = (s.allocated_to || '').toLowerCase().trim();
+                    const workedAtBranch = s.weekly_breakdown && s.weekly_breakdown.some(w =>
+                        w.days && w.days.some(d => (d.location || '').toLowerCase().trim() === sel)
+                    );
+                    if (staffAlloc !== sel && !workedAtBranch) return false;
+                }
                 if (searchQuery.value) {
                     const q = searchQuery.value.toLowerCase().trim();
                     const mName = s.name.toLowerCase().includes(q);
@@ -1023,6 +1042,7 @@ const app = createApp({
             selectedYear,
             selectedMonth,
             locations,
+            sortedLocations,
             selectedLoc,
             searchQuery,
             statusFilter,
