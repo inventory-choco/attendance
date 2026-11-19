@@ -11,10 +11,10 @@
  */
 window.APP_CONFIG = {
     // Paste your Google Apps Script Web App URL here:
-    GOOGLE_SCRIPT_URL: "",
+    GOOGLE_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwRkTZN2Cz1zdm6_L0fCQG1g4JCpXdV5ppy3fp1Lycoo6Ogx_xQxotSxOzdrbIl5nQbjw/exec",
 
     // Google Sign-In Client ID (Google Cloud Console OAuth 2.0 Web Client ID)
-    GOOGLE_CLIENT_ID: "",
+    GOOGLE_CLIENT_ID: "188969693421-8ebob1ei8ks5j4dnq2j92la9mo1kqgfi.apps.googleusercontent.com",
 
     // Business Rules
     AUTO_REFRESH_MINUTES: 60,      // Automatically reload live data from Google Sheet every 1 hour
