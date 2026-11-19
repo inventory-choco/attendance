@@ -1,8 +1,10 @@
 # Staff Attendance Management System
 
-A high-performance, user-friendly, and reliable Staff Attendance & Overtime/Undertime Tracking Web Application designed specifically for multi-branch staff with flexible daily schedules.
+A high-performance, mobile-first, and privacy-preserving Staff Attendance & Overtime/Undertime Tracking Web Application designed specifically for multi-branch staff with flexible daily schedules.
 
-Connected GitHub Repository: `https://github.com/inventory-choco/attendance.git`
+- **GitHub Pages Live App:** [https://inventory-choco.github.io/attendance/](https://inventory-choco.github.io/attendance/)
+- **GitHub Repository:** [https://github.com/inventory-choco/attendance.git](https://github.com/inventory-choco/attendance.git)
+- **Backend Storage:** 100% Private Google Sheets via Google Apps Script Web App
 
 ---
 
@@ -13,9 +15,9 @@ Connected GitHub Repository: `https://github.com/inventory-choco/attendance.git`
 - Daily schedule is completely flexible as long as they complete **48 Hours in a week**.
 
 ### 2. Automatic Week Offs ("WO") on Fridays & Sundays
-- **Rule:** Normally every **Sunday** and **Friday** is **"WO" (Week Off)**.
-- If staff did not update a shift manually for these days, they automatically show as **"WO"** with zero hours required.
-- If staff worked an overtime shift on a Friday or Sunday and manually logged their hours, those hours are credited toward their weekly total.
+- **Rule:** Normally every **Sunday** and **Friday** is treated as **"WO" (Week Off)**.
+- If staff did not log a shift for these days, they automatically calculate as **"WO"** with 0 hours required.
+- If staff worked an overtime shift on a Friday or Sunday and manually logged their hours, those hours are counted towards their weekly total.
 
 ### 3. Weekly 48-Hour Overtime & Undertime Logic
 - Cutoff cycle starts from the **20th day of the month** and ends on the **19th day of the next month**.
@@ -24,85 +26,95 @@ Connected GitHub Repository: `https://github.com/inventory-choco/attendance.git`
   - **Week 2:** Day 8 to 14 (27th – 2nd/3rd) — Target: 48.0h
   - **Week 3:** Day 15 to 21 (3rd/4th – 9th/10th) — Target: 48.0h
   - **Week 4:** Day 22 to 28 (10th/11th – 16th/17th) — Target: 48.0h
-  - **Week 5 (Remainder):** Day 29 to cutoff end (18th – 19th) — Prorated target (e.g., 9.6h/workday).
+  - **Week 5 (Remainder):** Day 29 to cutoff end (18th – 19th) — Prorated target (9.6h/workday).
 - **Overtime:** Hours worked above the weekly target.
-- **Undertime:** Hours below the weekly target.
+- **Undertime:** Hours worked below the weekly target.
 - **Net Monthly Balance:** Calculated based on the attendance for the whole month (Total Overtime minus Total Undertime).
 
-### 4. Smart Attendance Entry (Desktop & Mobile Friendly)
-- **Smart Staff Search Box:** Instant autocomplete search by staff name or employee code (e.g. typing "Amal" or "3002").
+### 4. Smart Attendance Entry (Mobile & Desktop)
+- **Smart Staff Search Box:** Instant autocomplete search by employee name or employee code.
 - **Employee Number / Code:** Automatically displayed and linked.
 - **Date Validation:** Allows past dates and today; **strictly blocks future dates**.
 - **Status Selection:** Support for `Present`, `WO` (Week Off), `OFF` (Unscheduled Off), `Paid Leave` (PL), `Sick Leave` (SL), `Unpaid Leave` (UL), and `Holiday`.
-- **Start Time & End Time:** Live calculated duration; supports overnight shifts.
-- **Smart Branch Location:** Searchable dropdown populated from the `Locations` sheet (DUBAI, ABU DHABI, RAK, FUJAIRAH, SHARJAH, HEAD OFFICE).
+- **Start Time & End Time:** Live calculated duration; automatically supports overnight shifts.
+- **Smart Branch Location:** Searchable branch dropdown populated dynamically from the `Locations` sheet.
 - **ADD Button:**
   - Prevents duplicate entries on the same date for the same employee.
   - **Retains previously entered data** (employee name, code, location, times) for fast multi-date logging without re-typing.
 
-### 5. Formatted Excel Download (`.xlsx`)
-- Pure attendance export with formatted header, colors for Overtime (green), Undertime (red), and Week Offs (slate/indigo).
-- Includes two sheets:
-  1. **Attendance Summary:** Staff name, code, branch, Weeks 1–5, Total Worked, Target, Overtime, Undertime, Net Balance, Days Present, WO, and Leaves.
-  2. **Daily Attendance Matrix:** Day-by-day log from 20th to 19th.
+### 5. 1-Year Rolling Retention Policy
+- Attendance logs are saved to the `Attendance_data` sheet in Google Sheets.
+- The system automatically keeps the past **365 days (1 year)** of attendance history.
+- Older records are automatically pruned to keep Google Sheets lightweight, responsive, and fast.
+
+### 6. Client-Side Formatted Excel Download (`.xlsx`)
+- Pure attendance export with formatted summary: Weeks 1–5, Total Worked Hours, Target Hours, Overtime, Undertime, Net Balance, Days Present, and Week Offs.
+- Formatted and generated directly in the browser via SheetJS (no external server required).
+
+### 7. 1-Hour Automatic Browser Sync
+- Browsers automatically re-sync live attendance data from Google Sheets every **60 minutes** (or on demand via the refresh button).
 
 ---
 
-## 👥 Staff Roster (Inventory Department)
+## 🔒 Data Privacy & Google Sheet Structure
 
-| Sl. | Employee Code | Employee Name | Designation | Branch / Allocation | WhatsApp |
-|---|---|---|---|---|---|
-| 1 | `INV-001` | Shuhaib Muhammed Chirakkattil | Inventory Manager | HEAD OFFICE | +971 502247162 |
-| 2 | `INV-002` | Amal Valsan Kumar | Inventory Controller | DUBAI | +971 561775239 |
-| 3 | `INV-003` | Alan Mathew Varghese | Inventory Controller | RAK | +971 565637002 |
-| 4 | `INV-004` | Jebin Shanthi Susaiah | Inventory Controller | RAK | +971 568211967 |
-| 5 | `INV-005` | Athul Kalamkoli Mahendran | Inventory Controller | FUJAIRAH | +971 559436074 |
-| 6 | `INV-006` | Kevin Paul Poulose | Inventory Controller | ABU DHABI | +971 568518636 |
-| 7 | `INV-007` | Arun Suresh | Inventory Controller | ABU DHABI | +971 504160943 |
-| 8 | `INV-008` | Muhammed Shibil | Inventory Controller | DUBAI | +971 568269041 |
-| 9 | `INV-009` | Sujith Kumar Maladukkam Vasanth | Inventory Controller | ABU DHABI | +971 589077644 |
-| 10 | `INV-010` | Jince Mathew Thulasi Mathew | Inventory Controller | SHARJAH | +971 581347472 |
-| 11 | `INV-011` | Pawan Deep Singh Bupinder Singh | Inventory Helper | ABU DHABI | — |
-| 12 | `INV-012` | Sikender Singh | Inventory Helper | DUBAI | +91 7009441420 |
-| 13 | `INV-013` | Gurudeep Singh Karnail Singh | Inventory Helper | ABU DHABI | +91 9646000717 |
-| 14 | `INV-014` | Rahul Mast Ram | Inventory Helper | DUBAI | — |
-| 15 | `INV-015` | Gagandeep Singh Mohinder Pal | Inventory Helper | SHARJAH | — |
-| 16 | `3002` | Masood (ID: 3002) | Inventory Helper | DUBAI | — |
-| 17 | `2987` | Sooraj (ID: 2987) | Inventory Helper | RAK | — |
-| 18 | `2999` | Farhan (ID: 2999) | Inventory Helper | ABU DHABI | — |
-| 19 | `INV-019` | YOGESH RAVINDER CHHIBBER | Inventory Helper | FUJAIRAH | — |
+The GitHub repository contains **zero hardcoded private staff details or records**. All information is dynamically loaded from your private Google Spreadsheet.
 
----
+### Google Sheet Tabs Schema
 
-## 🏢 Locations Sheet (Branches)
+#### 1. `Staff_data`
+| Column A | Column B | Column C | Column D | Column E | Column F | Column G | Column H |
+|---|---|---|---|---|---|---|---|
+| `Sl. No.` | `Employee Code` | `Employee Name` | `Designation` | `Allocated to` | `Whatsapp` | `IMAGE` | `Gmail` |
 
-| Branch | Emirate (Emr) | Location |
+#### 2. `Locations`
+| Column A | Column B | Column C |
 |---|---|---|
-| **HEAD OFFICE** | Dubai | Head Office - Dubai |
-| **DUBAI** | Dubai | Dubai Central Warehouse |
-| **ABU DHABI** | Abu Dhabi | Abu Dhabi Branch |
-| **RAK** | Ras Al Khaimah | Ras Al Khaimah Depot |
-| **FUJAIRAH** | Fujairah | Fujairah Distribution |
-| **SHARJAH** | Sharjah | Sharjah Logistics Center |
+| `Branch` | `Emr` | `Location` |
+
+#### 3. `Attendance_data`
+| Col A | Col B | Col C | Col D | Col E | Col F | Col G | Col H | Col I | Col J |
+|---|---|---|---|---|---|---|---|---|---|
+| `Timestamp` | `Date` | `Employee Code` | `Employee Name` | `Branch` | `Status` | `Start Time` | `End Time` | `Total Hours` | `Notes` |
 
 ---
 
-## 🚀 How to Run the Application
+## 🚀 Deployment & Permanent Connection Setup
 
-### 1-Click Launch on Windows
-Double click [run.bat](file:///G:/My%20Drive/OFFICE%20HP/GitHub/Attendance/attendance/run.bat) or run in terminal:
-```cmd
-cd "G:\My Drive\OFFICE HP\GitHub\Attendance\attendance"
-.\run.bat
-```
+To connect your private Google Sheet permanently to GitHub Pages:
 
-### Manual Run
+1. Open your Google Sheet.
+2. In the top menu, navigate to **Extensions > Apps Script**.
+3. Copy the entire contents of `google_apps_script.js` and paste it into the editor.
+4. Click **Deploy > New deployment**.
+   - Select type: **Web app**
+   - Description: `Attendance API`
+   - Execute as: **Me**
+   - Who has access: **Anyone**
+5. Click **Deploy** and copy the generated Web App URL (`https://script.google.com/macros/s/.../exec`).
+6. Open `static/js/config.js` in this repository and paste the URL:
+   ```javascript
+   window.APP_CONFIG = {
+       GOOGLE_SCRIPT_URL: "https://script.google.com/macros/s/.../exec",
+       ...
+   };
+   ```
+7. Commit and push to GitHub:
+   ```bash
+   git add .
+   git commit -m "feat: configure google apps script url"
+   git push origin main
+   ```
+8. Every user visiting [https://inventory-choco.github.io/attendance/](https://inventory-choco.github.io/attendance/) on mobile or desktop will now be connected automatically!
+
+---
+
+## 💻 Local Development (Optional FastAPI Server)
+
 ```bash
 cd "G:\My Drive\OFFICE HP\GitHub\Attendance\attendance"
 python -m pip install -r requirements.txt
 python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
-
-Open:
-- Application UI: [http://127.0.0.1:8000](http://127.0.0.1:8000)
-- API Docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- Local Application: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+- Local API Docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)

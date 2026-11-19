@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Staff Attendance Portal — Cutoff 20th to 19th</title>
+    <title>Staff Attendance Portal</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -55,57 +55,59 @@
                         <div class="flex items-center gap-2 flex-wrap">
                             <span class="font-bold text-base sm:text-lg tracking-tight text-white">Staff Attendance</span>
                             <span class="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20">48h Weekly Target</span>
-                            <span class="hidden sm:inline text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">20th–19th Cycle</span>
+                            <span class="hidden sm:inline text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">20th–19th Cutoff</span>
                         </div>
-                        <p class="text-[11px] text-slate-400 hidden sm:block">Inventory Staff • Friday & Sunday WO • Google Sheets Connected</p>
+                        <p class="text-[11px] text-slate-400 hidden sm:block">Automated Friday & Sunday WO • 1-Hour Auto-Refresh</p>
                     </div>
                 </div>
 
                 <!-- Header Actions -->
                 <div class="flex items-center gap-2 sm:gap-3">
-                    <!-- Google Sheet Connection Pill / Button -->
+                    <!-- Google Sheet Status / Setup Button -->
                     <button @click="connectModal = true"
                             class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition"
                             :class="googleSheetWebAppUrl ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800 hover:bg-emerald-950/70' : 'bg-amber-950/40 text-amber-300 border-amber-800 hover:bg-amber-950/70'">
                         <i class="fa-solid fa-file-excel text-emerald-400"></i>
-                        <span class="hidden sm:inline">{{ googleSheetWebAppUrl ? 'Google Sheet Active' : 'Connect Google Sheet' }}</span>
+                        <span class="hidden sm:inline">{{ googleSheetWebAppUrl ? 'Google Sheet Connected' : 'Connect Sheet' }}</span>
                         <span class="w-2 h-2 rounded-full" :class="googleSheetWebAppUrl ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'"></span>
                     </button>
 
-                    <!-- Sync Button -->
-                    <button v-if="googleSheetWebAppUrl" @click="syncGoogleSheet" :disabled="loading"
+                    <!-- Manual Refresh Button -->
+                    <button v-if="googleSheetWebAppUrl" @click="syncGoogleSheet(false)" :disabled="loading"
                             title="Refresh Data from Google Sheet"
                             class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 transition">
                         <i class="fa-solid fa-arrows-rotate" :class="{ 'spinning': loading }"></i>
                     </button>
 
-                    <!-- Export Excel -->
-                    <button @click="exportExcel" title="Download Formatted Excel Report"
-                            class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5">
+                    <!-- Export Excel Button -->
+                    <button @click="exportExcel"
+                            :disabled="staffList.length === 0"
+                            title="Download Formatted Excel Report"
+                            class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5">
                         <i class="fa-solid fa-file-excel"></i>
-                        <span class="hidden sm:inline">Excel Report</span>
+                        <span class="hidden sm:inline">Download Excel</span>
                     </button>
                 </div>
             </div>
 
-            <!-- Tab Navigation (Mobile Friendly) -->
+            <!-- Tab Navigation Bar -->
             <div class="flex space-x-1 overflow-x-auto py-2 no-scrollbar text-xs font-medium border-t border-slate-800/60">
                 <button @click="currentTab = 'reports'"
-                        class="px-3 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
                         :class="currentTab === 'reports' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
                     <i class="fa-solid fa-table-list"></i>
                     <span>Attendance Summary</span>
                 </button>
                 <button @click="currentTab = 'staff'"
-                        class="px-3 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
                         :class="currentTab === 'staff' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
                     <i class="fa-solid fa-id-badge"></i>
-                    <span>Staff Roster (19)</span>
+                    <span>Staff Roster ({{ staffList.length }})</span>
                 </button>
                 <button @click="connectModal = true"
-                        class="px-3 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
+                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
                     <i class="fa-brands fa-google-drive text-emerald-400"></i>
-                    <span>Google Sheets Setup</span>
+                    <span>Google Sheets Connection</span>
                 </button>
             </div>
         </div>
@@ -114,10 +116,31 @@
     <!-- Main Container -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
+        <!-- Banner: Empty State / Setup Notice (Shown if Google Sheet URL is not configured) -->
+        <div v-if="!googleSheetWebAppUrl"
+             class="bg-gradient-to-r from-amber-950/40 via-navy-900 to-navy-900 border border-amber-800/60 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xl flex-shrink-0 border border-amber-500/20">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-sm sm:text-base text-amber-200">Connect Google Sheet to Load Live Data</h3>
+                    <p class="text-xs text-slate-300 mt-1 max-w-xl">
+                        Your staff list, locations, and attendance are loaded directly from your Google Sheet. No private employee data is stored in GitHub.
+                    </p>
+                </div>
+            </div>
+            <button @click="connectModal = true"
+                    class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-navy-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-link"></i>
+                <span>Connect Google Sheet (60s Setup)</span>
+            </button>
+        </div>
+
         <!-- ========================================================= -->
         <!-- SMART ATTENDANCE ENTRY (MOBILE & DESKTOP)                 -->
         <!-- ========================================================= -->
-        <div class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative overflow-hidden">
+        <div v-if="staffList.length > 0" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative overflow-hidden">
             <div class="absolute -top-12 -right-12 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
             <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-5">
@@ -127,7 +150,7 @@
                         <span>Log Staff Attendance</span>
                     </h2>
                     <p class="text-xs text-slate-400 mt-0.5">
-                        Select employee, pick past date, and click <strong>ADD</strong>. Previous staff and shift values stay selected for quick multiple entries!
+                        Select staff, pick date, enter shift, and click <strong>ADD</strong>. Previous staff and branch stay selected for quick multiple entries!
                     </p>
                 </div>
 
@@ -161,7 +184,7 @@
                         <input v-model="staffSearchQuery"
                                @focus="showStaffDropdown = true"
                                type="text"
-                               placeholder="Search name or code (Amal, 3002)..."
+                               placeholder="Search name or code..."
                                class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-8 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium" />
                         <button v-if="staffSearchQuery" @click="staffSearchQuery = ''; showStaffDropdown = true" class="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300">
                             <i class="fa-solid fa-circle-xmark"></i>
@@ -169,9 +192,10 @@
                     </div>
 
                     <!-- Autocomplete Dropdown -->
+                    <div v-if="showStaffDropdown" @click="showStaffDropdown = false" class="fixed inset-0 z-20"></div>
                     <div v-if="showStaffDropdown"
                          class="absolute left-0 right-0 mt-1 bg-navy-900 border border-slate-700 rounded-xl shadow-2xl z-30 max-h-56 overflow-y-auto divide-y divide-slate-800">
-                        <div v-for="s in matchedStaffList" :key="s.id"
+                        <div v-for="s in matchedStaffList" :key="s.employee_code"
                              @click="selectStaffForEntry(s)"
                              class="p-2.5 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between transition">
                             <div class="flex items-center gap-2.5">
@@ -188,7 +212,7 @@
                     </div>
                 </div>
 
-                <!-- 2. Employee Number -->
+                <!-- 2. Employee Number / Code -->
                 <div>
                     <label class="block font-semibold text-slate-300 mb-1.5">Employee Number</label>
                     <div class="relative">
@@ -196,7 +220,7 @@
                         <input :value="entryForm.employee_code"
                                readonly
                                type="text"
-                               placeholder="Auto-filled with staff"
+                               placeholder="Auto-filled"
                                class="w-full bg-slate-950/80 border border-slate-800 rounded-xl pl-8 pr-3 py-2.5 text-xs text-emerald-400 font-mono font-bold focus:outline-none cursor-default" />
                     </div>
                 </div>
@@ -254,7 +278,7 @@
                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none" />
                 </div>
 
-                <!-- 8. Location / Branch from Locations Sheet -->
+                <!-- 8. Branch Location from Locations Sheet -->
                 <div class="relative" :class="entryForm.status === 'Present' ? '' : 'sm:col-span-2'">
                     <label class="block font-semibold text-slate-300 mb-1.5">Branch Location <span class="text-emerald-400">*</span></label>
                     <div class="relative">
@@ -266,6 +290,7 @@
                                class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-semibold uppercase" />
                     </div>
 
+                    <div v-if="showLocationDropdown" @click="showLocationDropdown = false" class="fixed inset-0 z-20"></div>
                     <div v-if="showLocationDropdown"
                          class="absolute left-0 right-0 mt-1 bg-navy-900 border border-slate-700 rounded-xl shadow-2xl z-30 max-h-48 overflow-y-auto divide-y divide-slate-800">
                         <div v-for="loc in matchedLocations" :key="loc.branch"
@@ -274,6 +299,18 @@
                             <span class="font-bold text-slate-100">{{ loc.branch }}</span>
                             <span class="text-[10px] text-slate-400">{{ loc.emr }} • {{ loc.location }}</span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- 9. Optional Notes / Remarks -->
+                <div class="sm:col-span-2 lg:col-span-4">
+                    <label class="block font-semibold text-slate-300 mb-1.5">Notes / Remarks <span class="text-slate-500 font-normal">(Optional)</span></label>
+                    <div class="relative">
+                        <i class="fa-solid fa-comment-dots absolute left-3 top-3 text-slate-500 text-xs"></i>
+                        <input v-model="entryForm.notes"
+                               type="text"
+                               placeholder="Optional notes, e.g. Stock Taking at Barsha, Split Shift, Emergency Duty..."
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none" />
                     </div>
                 </div>
 
@@ -345,13 +382,13 @@
             <!-- KPI Summary Cards -->
             <div v-if="reportData && reportData.stats" class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md">
-                    <div class="text-xs text-slate-400">Total Staff</div>
+                    <div class="text-xs text-slate-400">Active Staff</div>
                     <div class="text-2xl font-bold text-white mt-1">{{ reportData.stats.total_staff }}</div>
-                    <div class="text-[11px] text-slate-400 mt-0.5">Active in Roster</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">In Roster</div>
                 </div>
 
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md">
-                    <div class="text-xs text-slate-400">Total Worked Hours</div>
+                    <div class="text-xs text-slate-400">Total Worked</div>
                     <div class="text-2xl font-bold text-white mt-1">{{ reportData.stats.aggregate_hours }} <span class="text-xs font-normal text-slate-400">hrs</span></div>
                     <div class="text-[11px] text-slate-400 mt-0.5">All branches</div>
                 </div>
@@ -369,7 +406,7 @@
                 </div>
 
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md col-span-2 lg:col-span-1">
-                    <div class="text-xs text-slate-400 font-semibold">Net Hours Balance</div>
+                    <div class="text-xs text-slate-400 font-semibold">Net Balance</div>
                     <div class="text-2xl font-bold mt-1"
                          :class="reportData.stats.net_aggregate_balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
                         {{ reportData.stats.net_aggregate_balance > 0 ? '+' : '' }}{{ reportData.stats.net_aggregate_balance }} <span class="text-xs font-normal text-slate-400">hrs</span>
@@ -383,7 +420,7 @@
                 <div class="p-4 border-b border-slate-800 flex items-center justify-between">
                     <div>
                         <h3 class="font-bold text-sm text-slate-100">Simple Staff Attendance Report</h3>
-                        <p class="text-xs text-slate-400">Weekly Target: 48h | Friday & Sunday auto WO | Cutoff 20th–19th</p>
+                        <p class="text-xs text-slate-400">Target: 48h/wk | Friday & Sunday auto WO | Cutoff 20th–19th</p>
                     </div>
                     <span class="text-xs text-slate-400 font-mono">{{ filteredStaffReports.length }} Staff</span>
                 </div>
@@ -410,7 +447,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-800/60 font-mono text-slate-300">
-                            <tr v-for="s in filteredStaffReports" :key="s.id" class="hover:bg-slate-800/40 transition">
+                            <tr v-for="s in filteredStaffReports" :key="s.employee_code" class="hover:bg-slate-800/40 transition">
                                 <td class="py-3 px-3 font-sans text-slate-500">{{ s.sl_no }}</td>
                                 <td class="py-3 px-2 text-center font-bold text-emerald-400">{{ s.employee_code }}</td>
 
@@ -470,6 +507,12 @@
                                     </button>
                                 </td>
                             </tr>
+
+                            <tr v-if="filteredStaffReports.length === 0">
+                                <td colspan="15" class="py-8 text-center text-slate-500 font-sans">
+                                    No attendance records found. Connect Google Sheet to load your staff and branches.
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -483,12 +526,12 @@
             <div class="bg-navy-900 rounded-2xl p-5 border border-slate-800 shadow-xl flex items-center justify-between">
                 <div>
                     <h3 class="font-bold text-base text-slate-100">Staff Roster ({{ staffList.length }} Staff Members)</h3>
-                    <p class="text-xs text-slate-400 mt-0.5">Inventory Team with designations, branches, and WhatsApp contact links.</p>
+                    <p class="text-xs text-slate-400 mt-0.5">Loaded dynamically from Google Sheet 'Staff_data'.</p>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                <div v-for="s in staffList" :key="s.id"
+                <div v-for="s in staffList" :key="s.employee_code"
                      class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-lg flex flex-col justify-between hover:border-slate-700 transition">
                     <div>
                         <div class="flex items-start justify-between mb-3">
@@ -529,7 +572,7 @@
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 class="font-bold text-sm sm:text-base text-slate-100 flex items-center gap-2">
                     <i class="fa-brands fa-google-drive text-emerald-400"></i>
-                    <span>Connect Your Private Google Sheet</span>
+                    <span>Connect Google Sheet as Secure Backend</span>
                 </h3>
                 <button @click="connectModal = false" class="text-slate-400 hover:text-slate-200">
                     <i class="fa-solid fa-xmark text-lg"></i>
@@ -540,10 +583,10 @@
                 <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                     <div class="font-bold text-emerald-400 flex items-center gap-1.5">
                         <i class="fa-solid fa-shield-halved"></i>
-                        <span>How Google Sheets Acts as Your Secure Backend</span>
+                        <span>Your Data is 100% Private</span>
                     </div>
                     <p class="text-[11px] text-slate-400 leading-relaxed">
-                        Your Google Sheet remains <strong>100% PRIVATE</strong> to you. The Google Apps Script Web App acts as a secure API bridge that lets this web app read <strong>Staff_data</strong>, read <strong>Locations</strong>, and append rows into <strong>Attendance_Logs</strong> without exposing your Google account or Drive!
+                        Your Google Sheet stays completely private to you. The Google Apps Script acts as your private API bridge. No staff names, phone numbers, or attendance rows are stored in GitHub.
                     </p>
                 </div>
 
@@ -553,14 +596,17 @@
                            type="url"
                            placeholder="https://script.google.com/macros/s/AKfycb.../exec"
                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none" />
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        Tip: You can also paste this URL in <code>static/js/config.js</code> so every user is connected automatically!
+                    </p>
                 </div>
 
                 <div class="space-y-2">
-                    <div class="font-semibold text-slate-200">Quick 60-Second Setup:</div>
+                    <div class="font-semibold text-slate-200">60-Second Deployment:</div>
                     <ol class="list-decimal list-inside space-y-1.5 text-slate-400 text-[11px] leading-relaxed">
-                        <li>Open your Google Sheet: <a href="https://docs.google.com/spreadsheets/d/1fKcoTVzIqvA4fsq75oOxXLp2tqQ-e74UZNVhPWFp3-Y/edit?usp=sharing" target="_blank" class="text-emerald-400 underline font-medium">Click here to open Sheet</a></li>
-                        <li>Click <strong>Extensions &gt; Apps Script</strong> in the top menu.</li>
-                        <li>Copy the script from the repo file <code class="text-emerald-400">google_apps_script.js</code> and paste it there.</li>
+                        <li>Open your Google Sheet: <a href="https://docs.google.com/spreadsheets/d/1fKcoTVzIqvA4fsq75oOxXLp2tqQ-e74UZNVhPWFp3-Y/edit?usp=sharing" target="_blank" class="text-emerald-400 underline font-medium">Open Google Sheet</a></li>
+                        <li>Click <strong>Extensions &gt; Apps Script</strong> in top menu.</li>
+                        <li>Copy the script from repo file <code class="text-emerald-400 font-bold">google_apps_script.js</code> and paste it there.</li>
                         <li>Click <strong>Deploy &gt; New deployment</strong> &gt; Select <strong>Web app</strong>.</li>
                         <li>Set 'Execute as': <strong>Me</strong>, and 'Who has access': <strong>Anyone</strong>.</li>
                         <li>Click <strong>Deploy</strong>, copy the generated Web App URL, and paste it above!</li>
@@ -581,6 +627,8 @@
 
 </div>
 
+<!-- Config File (Loads first so Web App URL is available immediately) -->
+<script src="./static/js/config.js"></script>
 <!-- Application Main JS -->
 <script src="./static/js/app.js"></script>
 </body>
