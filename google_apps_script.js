@@ -1,6 +1,6 @@
 /**
  * ======================================================================
- * STAFF ATTENDANCE SYSTEM — GOOGLE APPS SCRIPT WEB APP BACKEND (v3.0)
+ * STAFF ATTENDANCE SYSTEM — GOOGLE APPS SCRIPT WEB APP BACKEND (v3.1)
  * ======================================================================
  * 
  * SPREADSHEET URL:
@@ -18,38 +18,28 @@
  * - Standard Week Offs (WO): THURSDAY and SATURDAY.
  * - Cutoff cycle: 20th of the month to 19th of the next month.
  * - 1-Year Rolling Retention: Records older than 365 days are pruned.
+ * - Duplicate Prevention: Identical entries are not duplicated.
  * ----------------------------------------------------------------------
- * DEPLOYMENT INSTRUCTIONS:
- * 1. Open your Google Sheet: https://docs.google.com/spreadsheets/d/1fKcoTVzIqvA4fsq75oOxXLp2tqQ-e74UZNVhPWFp3-Y/edit?usp=sharing
- * 2. In Google Sheets top menu, click: Extensions > Apps Script
- * 3. Delete any code there, paste this entire file, and click Save (disk icon).
- * 4. Click 'Deploy' (top right) > 'New deployment'.
- * 5. Click the gear icon next to 'Select type' and choose 'Web app'.
- * 6. Set Description: "Attendance API v3"
- *    Set 'Execute as': "Me" (your Google account)
- *    Set 'Who has access': "Anyone"  <-- CRITICAL for GitHub Pages access!
- * 7. Click 'Deploy', authorize permissions if Google prompts you, and copy the Web App URL.
- * 8. Open 'static/js/config.js' in your repository and paste that URL:
- *    window.APP_CONFIG.GOOGLE_SCRIPT_URL = "YOUR_COPIED_URL";
- * ======================================================================
  */
 
 function formatDateSafe(val, tz) {
   if (!val) return "";
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return "";
-    try {
-      return Utilities.formatDate(val, tz || Session.getScriptTimeZone(), "yyyy-MM-dd");
-    } catch(e) {
-      var y = val.getFullYear();
-      var m = ("0" + (val.getMonth() + 1)).slice(-2);
-      var d = ("0" + val.getDate()).slice(-2);
-      return y + "-" + m + "-" + d;
-    }
+    var y = val.getFullYear();
+    var m = ("0" + (val.getMonth() + 1)).slice(-2);
+    var d = ("0" + val.getDate()).slice(-2);
+    return y + "-" + m + "-" + d;
   }
   var str = val.toString().trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
     return str.substring(0, 10);
+  }
+  var dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmyMatch) {
+    var dd = ("0" + dmyMatch[1]).slice(-2);
+    var mm = ("0" + dmyMatch[2]).slice(-2);
+    return dmyMatch[3] + "-" + mm + "-" + dd;
   }
   return str;
 }
@@ -60,7 +50,7 @@ function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
   var action = params.action || "get_all";
 
-  // Support attendance logging via GET to bypass restrictive corporate firewalls and 302 POST body loss
+  // Support attendance logging via GET to bypass 302 POST body loss
   if (action === "log_attendance") {
     try {
       var payloadStr = params.payload || params.data;
@@ -83,7 +73,7 @@ function doGet(e) {
 
     for (var i = 1; i < staffData.length; i++) {
       var row = staffData[i];
-      if (!row[2] || row[2].toString().trim() === "") continue; // Needs Employee Name
+      if (!row[2] || row[2].toString().trim() === "") continue;
       
       var slNo = row[0] ? parseInt(row[0], 10) : i;
       var empCode = row[1] ? row[1].toString().trim() : ("EMP-" + i);
@@ -129,7 +119,6 @@ function doGet(e) {
     }
 
     // 3. Fetch Attendance from 'Attendance_data'
-    // Header: Timestamp(0) | Date(1) | Employee Code(2) | Employee Name(3) | Branch(4) | Status(5) | Start Time(6) | End Time(7) | Total Hours(8) | Notes(9)
     var attSheet = ss.getSheetByName("Attendance_data");
     var logsList = [];
     if (attSheet) {
@@ -231,44 +220,78 @@ function handleLogAttendance(ss, payload, tz) {
   var empCode = payload.employee_code ? payload.employee_code.toString().trim() : "";
   var empName = payload.name ? payload.name.toString().trim() : "";
   var allowUpdate = payload.allow_update === true;
+  var newBranch = payload.location ? payload.location.toString().trim() : "";
+  var newStatus = payload.status ? payload.status.toString().trim() : "Present";
+  var newCheckIn = payload.check_in ? payload.check_in.toString().trim() : "";
+  var newCheckOut = payload.check_out ? payload.check_out.toString().trim() : "";
+  var newHours = parseFloat(payload.total_hours) || 0.0;
+  var newNotes = payload.notes ? payload.notes.toString().trim() : "";
 
   // Check duplicate on same date for same employee
   var existingData = targetSheet.getDataRange().getValues();
   var existingRowIndex = -1;
+  var existingRowData = null;
 
   for (var r = 1; r < existingData.length; r++) {
     var rFormatted = formatDateSafe(existingData[r][1], tz);
     var rCode = existingData[r][2] ? existingData[r][2].toString().trim() : "";
     var rName = existingData[r][3] ? existingData[r][3].toString().trim() : "";
 
-    if (rFormatted === dateStr && (rCode === empCode || (empCode === "" && rName === empName))) {
+    var dateMatch = (rFormatted === dateStr);
+    var codeMatch = (empCode !== "" && rCode !== "" && rCode === empCode);
+    var nameMatch = (empName !== "" && rName !== "" && rName.toLowerCase() === empName.toLowerCase());
+
+    if (dateMatch && (codeMatch || nameMatch)) {
       existingRowIndex = r + 1; // 1-based index in Google Sheets
+      existingRowData = existingData[r];
       break;
     }
   }
 
   var nowTimestamp = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm:ss");
 
-  if (existingRowIndex > 0 && !allowUpdate) {
-    return createJsonResponse({
-      status: "duplicate",
-      message: "Attendance entry already exists for " + empName + " (" + empCode + ") on " + dateStr
-    });
-  }
+  if (existingRowIndex > 0) {
+    var oldBranch = existingRowData[4] ? existingRowData[4].toString().trim() : "";
+    var oldStatus = existingRowData[5] ? existingRowData[5].toString().trim() : "";
+    var oldCheckIn = existingRowData[6] ? existingRowData[6].toString().trim() : "";
+    var oldCheckOut = existingRowData[7] ? existingRowData[7].toString().trim() : "";
+    var oldHours = parseFloat(existingRowData[8]) || 0.0;
+    var oldNotes = existingRowData[9] ? existingRowData[9].toString().trim() : "";
 
-  if (existingRowIndex > 0 && allowUpdate) {
+    var isIdentical = (oldBranch.toUpperCase() === newBranch.toUpperCase() &&
+                       oldStatus.toUpperCase() === newStatus.toUpperCase() &&
+                       oldCheckIn === newCheckIn &&
+                       oldCheckOut === newCheckOut &&
+                       Math.abs(oldHours - newHours) < 0.01 &&
+                       oldNotes === newNotes);
+
+    if (isIdentical) {
+      return createJsonResponse({
+        status: "success",
+        action: "unchanged",
+        message: "Attendance entry already recorded with identical details on " + dateStr
+      });
+    }
+
+    if (!allowUpdate) {
+      return createJsonResponse({
+        status: "duplicate",
+        message: "Attendance entry already exists for " + empName + " (" + empCode + ") on " + dateStr + " (" + oldStatus + ", " + oldHours + "h). Do you want to update it?"
+      });
+    }
+
     // Update existing row
     targetSheet.getRange(existingRowIndex, 1, 1, 10).setValues([[
       nowTimestamp,
       dateStr,
       empCode,
       empName,
-      payload.location || "",
-      payload.status || "Present",
-      payload.check_in || "",
-      payload.check_out || "",
-      parseFloat(payload.total_hours) || 0.0,
-      payload.notes || ""
+      newBranch,
+      newStatus,
+      newCheckIn,
+      newCheckOut,
+      newHours,
+      newNotes
     ]]);
 
     return createJsonResponse({
@@ -283,15 +306,14 @@ function handleLogAttendance(ss, payload, tz) {
       dateStr,
       empCode,
       empName,
-      payload.location || "",
-      payload.status || "Present",
-      payload.check_in || "",
-      payload.check_out || "",
-      parseFloat(payload.total_hours) || 0.0,
-      payload.notes || ""
+      newBranch,
+      newStatus,
+      newCheckIn,
+      newCheckOut,
+      newHours,
+      newNotes
     ]);
 
-    // Apply 1-Year Retention Policy (prunes records older than 365 days)
     pruneOldAttendanceRecords(targetSheet, tz);
 
     return createJsonResponse({
@@ -302,18 +324,13 @@ function handleLogAttendance(ss, payload, tz) {
   }
 }
 
-/**
- * 1-Year Rolling Retention Policy:
- * Scans 'Attendance_data' and removes records older than 365 days.
- * Keeps exactly the past 1 year of attendance history clean and fast.
- */
 function pruneOldAttendanceRecords(sheet, tz) {
   try {
     var data = sheet.getDataRange().getValues();
     if (data.length <= 2) return;
 
     var cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 365); // 365 days ago
+    cutoffDate.setDate(cutoffDate.getDate() - 365);
 
     var rowsToDelete = [];
     for (var i = 1; i < data.length; i++) {
@@ -324,17 +341,15 @@ function pruneOldAttendanceRecords(sheet, tz) {
         var parts = dFormatted.split("-");
         var rowDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
         if (rowDate < cutoffDate) {
-          rowsToDelete.push(i + 1); // 1-based index
+          rowsToDelete.push(i + 1);
         }
       }
     }
 
-    // Delete from bottom up to preserve row indices
     for (var j = rowsToDelete.length - 1; j >= 0; j--) {
       sheet.deleteRow(rowsToDelete[j]);
     }
   } catch (e) {
-    // Non-fatal error during pruning
   }
 }
 
@@ -343,10 +358,6 @@ function createJsonResponse(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/**
- * Optional Recurring Daily Trigger
- * Can be scheduled via Apps Script Triggers to prune old records daily at midnight.
- */
 function dailyMaintenance() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var targetSheet = ss.getSheetByName("Attendance_data");

@@ -45,12 +45,72 @@
 
     <!-- Toast Notification Popup -->
     <transition enter-active-class="transform ease-out duration-300 transition" enter-from-class="translate-y-2 opacity-0 sm:translate-y-0 sm:translate-x-2" enter-to-class="translate-y-0 opacity-100 sm:translate-x-0" leave-active-class="transition ease-in duration-100" leave-from-class="opacity-100" leave-to-class="opacity-0">
-        <div v-if="toastMessage" class="fixed top-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-xs sm:text-sm font-semibold border backdrop-blur-md"
+        <div v-if="toastMessage" class="fixed top-5 right-5 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-xs sm:text-sm font-semibold border backdrop-blur-md"
              :class="toastType === 'error' ? 'bg-rose-950/95 text-rose-200 border-rose-800' : 'bg-emerald-950/95 text-emerald-200 border-emerald-800'">
             <i :class="toastType === 'error' ? 'fa-solid fa-circle-exclamation text-rose-400 text-base' : 'fa-solid fa-circle-check text-emerald-400 text-base'"></i>
             <span>{{ toastMessage }}</span>
         </div>
     </transition>
+
+    <!-- ============================================================= -->
+    <!-- LOGIN GATE: Full-screen login page (shown when NOT logged in)  -->
+    <!-- ============================================================= -->
+    <div v-if="!currentUser" class="flex-1 flex items-center justify-center min-h-screen p-4">
+        <div class="w-full max-w-md space-y-6">
+            <!-- Logo & App Title -->
+            <div class="text-center space-y-4">
+                <div class="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-2xl shadow-emerald-500/30">
+                    <i class="fa-solid fa-calendar-check text-white text-3xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Staff Attendance</h1>
+                    <p class="text-sm text-slate-400 mt-1">48h Weekly Target • Mon–Sun • 20th–19th Cutoff</p>
+                </div>
+            </div>
+
+            <!-- Login Card -->
+            <div class="bg-navy-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
+                <div class="text-center">
+                    <h2 class="text-lg font-bold text-white">Sign In to Continue</h2>
+                    <p class="text-xs text-slate-400 mt-1">Only authorized staff can access this portal. Sign in with your registered Google account.</p>
+                </div>
+
+                <!-- Loading State (checking auth) -->
+                <div v-if="isAuthChecking" class="flex flex-col items-center gap-3 py-6">
+                    <div class="w-10 h-10 border-3 border-emerald-500 border-t-transparent rounded-full spinning"></div>
+                    <p class="text-xs text-slate-400">Verifying your credentials...</p>
+                </div>
+
+                <!-- Google Sign-In Button Container -->
+                <div v-else class="flex flex-col items-center gap-4">
+                    <div id="google-signin-btn-login" class="w-full flex justify-center"></div>
+                    <p class="text-[11px] text-slate-500 text-center leading-relaxed">
+                        Your email must be registered in the Staff Directory.<br>
+                        Contact your administrator if you need access.
+                    </p>
+                </div>
+
+                <!-- Auth Error Message -->
+                <div v-if="authError" class="bg-rose-950/60 border border-rose-800 rounded-xl p-4 text-center">
+                    <i class="fa-solid fa-shield-exclamation text-rose-400 text-lg mb-2"></i>
+                    <p class="text-xs text-rose-300 font-semibold">{{ authError }}</p>
+                    <button @click="authError = ''; retryLogin()" class="mt-3 px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition">
+                        <i class="fa-solid fa-rotate-right mr-1"></i> Try Again
+                    </button>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <p class="text-center text-[10px] text-slate-600">
+                Inventory Department • Attendance Portal v3.0
+            </p>
+        </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- AUTHENTICATED APP (shown ONLY when currentUser is set)         -->
+    <!-- ============================================================= -->
+    <template v-if="currentUser">
 
     <!-- Top Navigation Header -->
     <header class="bg-navy-900 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md bg-opacity-95">
@@ -73,15 +133,6 @@
 
                 <!-- Header Actions -->
                 <div class="flex items-center gap-2 sm:gap-3">
-                    <!-- Google Sheet Status / Setup Button -->
-                    <button @click="connectModal = true"
-                            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition"
-                            :class="googleSheetWebAppUrl ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800 hover:bg-emerald-950/70' : 'bg-amber-950/40 text-amber-300 border-amber-800 hover:bg-amber-950/70'">
-                        <i class="fa-solid fa-file-excel text-emerald-400"></i>
-                        <span class="hidden sm:inline">{{ googleSheetWebAppUrl ? 'Google Sheet Connected' : 'Connect Sheet' }}</span>
-                        <span class="w-2 h-2 rounded-full" :class="googleSheetWebAppUrl ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'"></span>
-                    </button>
-
                     <!-- Manual Refresh Button -->
                     <button v-if="googleSheetWebAppUrl" @click="syncGoogleSheet(false)" :disabled="loading"
                             title="Refresh Data from Google Sheet"
@@ -89,7 +140,7 @@
                         <i class="fa-solid fa-arrows-rotate" :class="{ 'spinning': loading }"></i>
                     </button>
 
-                    <!-- Export Excel Button (2 Sheets: Summary + Daily Attendance) -->
+                    <!-- Export Excel Button -->
                     <button @click="exportExcel"
                             :disabled="staffList.length === 0"
                             title="Download Formatted Excel with Summary & Daily Attendance"
@@ -98,8 +149,8 @@
                         <span class="hidden sm:inline">Export Excel</span>
                     </button>
 
-                    <!-- Google User Profile / Login Button -->
-                    <div v-if="currentUser" class="flex items-center gap-2 pl-2 border-l border-slate-800">
+                    <!-- Google User Profile & Sign Out -->
+                    <div class="flex items-center gap-2 pl-2 border-l border-slate-800">
                         <img v-if="currentUser.picture" :src="currentUser.picture" class="w-8 h-8 rounded-full border border-emerald-500" />
                         <div class="hidden md:block text-left text-[11px] leading-tight">
                             <div class="font-bold text-slate-200">{{ currentUser.name }}</div>
@@ -109,7 +160,6 @@
                             <i class="fa-solid fa-right-from-bracket"></i>
                         </button>
                     </div>
-                    <div v-else id="google-signin-btn" class="hidden sm:block"></div>
                 </div>
             </div>
 
@@ -135,12 +185,6 @@
                     <i class="fa-solid fa-id-badge"></i>
                     <span>Staff Directory ({{ staffList.length }})</span>
                 </button>
-
-                <button @click="connectModal = true"
-                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
-                    <i class="fa-brands fa-google-drive text-emerald-400"></i>
-                    <span>Backend Connection & Setup</span>
-                </button>
             </div>
         </div>
     </header>
@@ -148,26 +192,14 @@
     <!-- Main Container -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-        <!-- Banner: Empty State / Setup Notice (Shown if Google Sheet URL is not configured) -->
-        <div v-if="!googleSheetWebAppUrl"
-             class="bg-navy-900 border border-amber-800/60 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xl flex-shrink-0 border border-amber-500/20">
-                    <i class="fa-solid fa-link-slash"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-sm sm:text-base text-amber-200">Connect Your Google Sheet</h3>
-                    <p class="text-xs text-slate-300 mt-1 max-w-xl">
-                        Deploy <code>google_apps_script.js</code> in your Google Sheet, paste your Web App URL into <code>static/js/config.js</code>, and push to GitHub so all staff connect automatically.
-                    </p>
-                </div>
-            </div>
-            <button @click="connectModal = true"
-                    class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-navy-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition flex items-center gap-2 whitespace-nowrap">
-                <i class="fa-solid fa-wrench"></i>
-                <span>Connect Google Sheet (60s Setup)</span>
-            </button>
+        <!-- Loading Overlay (while initially fetching data after login) -->
+        <div v-if="initialLoading" class="text-center py-16">
+            <div class="w-12 h-12 mx-auto border-3 border-emerald-500 border-t-transparent rounded-full spinning mb-4"></div>
+            <p class="text-sm text-slate-400 font-medium">Loading staff data from Google Sheet...</p>
+            <p class="text-xs text-slate-500 mt-1">This takes a few seconds on first load</p>
         </div>
+
+        <template v-else>
 
         <!-- ========================================================= -->
         <!-- SECTION 1: LOG STAFF ATTENDANCE (SMART ENTRY FORM)        -->
@@ -361,7 +393,7 @@
             </div>
         </div>
 
-        <!-- Cutoff Period Selector Bar (Universal for all tabs) -->
+        <!-- Cutoff Period Selector Bar -->
         <div class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="flex items-center gap-3">
                 <div class="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-emerald-400 flex-shrink-0">
@@ -402,7 +434,6 @@
                             <div class="text-xs text-slate-400 mt-1 flex items-center gap-3 flex-wrap">
                                 <span><i class="fa-solid fa-briefcase text-slate-500 mr-1"></i>{{ selectedStaffReport.designation }}</span>
                                 <span><i class="fa-solid fa-building text-slate-500 mr-1"></i>{{ selectedStaffReport.allocated_to }}</span>
-                                <span v-if="selectedStaffReport.gmail"><i class="fa-solid fa-envelope text-slate-500 mr-1"></i>{{ selectedStaffReport.gmail }}</span>
                                 <button v-if="selectedStaffReport.whatsapp" @click="openWhatsApp(selectedStaffReport.whatsapp)" class="text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1">
                                     <i class="fa-brands fa-whatsapp"></i> Chat
                                 </button>
@@ -410,35 +441,30 @@
                         </div>
                     </div>
 
-                    <!-- Month KPI Summary Pills for this staff -->
+                    <!-- Month KPI Summary Pills -->
                     <div class="flex flex-wrap items-center gap-2 text-xs">
                         <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
                             <div class="text-[10px] text-slate-400">Total Worked</div>
                             <div class="text-base font-bold text-white">{{ selectedStaffReport.total_month_hours }} <span class="text-xs font-normal text-slate-400">/ {{ selectedStaffReport.total_target_hours }}h</span></div>
                         </div>
-
                         <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
                             <div class="text-[10px] text-slate-400">Net Balance</div>
                             <div class="text-base font-bold" :class="selectedStaffReport.net_monthly_balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
                                 {{ selectedStaffReport.net_monthly_balance >= 0 ? '+' : '' }}{{ selectedStaffReport.net_monthly_balance }}h
                             </div>
                         </div>
-
                         <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
                             <div class="text-[10px] text-slate-400">Overtime</div>
                             <div class="text-base font-bold text-emerald-400">+{{ selectedStaffReport.total_overtime }}h</div>
                         </div>
-
                         <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
                             <div class="text-[10px] text-slate-400">Undertime</div>
                             <div class="text-base font-bold text-rose-400">-{{ selectedStaffReport.total_undertime }}h</div>
                         </div>
-
                         <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
                             <div class="text-[10px] text-slate-400">Present / WO</div>
                             <div class="text-base font-bold text-slate-200">{{ selectedStaffReport.days_present_count }}d / {{ selectedStaffReport.days_wo_count }}d</div>
                         </div>
-
                         <div v-if="selectedStaffReport.missing_count > 0" class="bg-amber-950/40 px-3.5 py-2 rounded-xl border border-amber-800/80">
                             <div class="text-[10px] text-amber-300 font-semibold">Missing Days</div>
                             <div class="text-base font-bold text-amber-400">{{ selectedStaffReport.missing_count }} Unlogged</div>
@@ -456,7 +482,7 @@
                     </div>
                 </div>
 
-                <!-- CARDS PER WEEK (Monday to Sunday Calendar Weeks) -->
+                <!-- CARDS PER WEEK (Monday to Sunday) -->
                 <div class="space-y-4">
                     <div class="flex items-center justify-between">
                         <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
@@ -466,7 +492,6 @@
                         <span class="text-xs text-slate-400">Standard WO: Thursday & Saturday</span>
                     </div>
 
-                    <!-- Grid of Week Cards -->
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div v-for="week in selectedStaffReport.weekly_breakdown" :key="week.week_number"
                              class="bg-navy-900 rounded-2xl border border-slate-800 shadow-lg overflow-hidden flex flex-col justify-between hover:border-slate-700 transition">
@@ -490,11 +515,10 @@
                                 </div>
                             </div>
 
-                            <!-- Day-by-Day List inside this week -->
+                            <!-- Day-by-Day List -->
                             <div class="p-3 divide-y divide-slate-800/60 text-xs">
                                 <div v-for="d in week.days" :key="d.date"
                                      class="py-2 flex items-center justify-between gap-2">
-                                    <!-- Date & Day -->
                                     <div class="flex items-center gap-2">
                                         <div class="w-8 text-center leading-tight">
                                             <div class="text-[9px] uppercase font-bold text-slate-400">{{ d.day_name }}</div>
@@ -515,8 +539,6 @@
                                             </div>
                                         </div>
                                     </div>
-
-                                    <!-- Status Badge / Quick Action -->
                                     <div>
                                         <button v-if="d.status === 'Missing'" @click="quickLogDate(d.date)"
                                                 class="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-navy-950 text-[10px] font-bold shadow transition flex items-center gap-1">
@@ -570,25 +592,21 @@
                     <div class="text-2xl font-bold text-white mt-1">{{ reportData.stats.total_staff }}</div>
                     <div class="text-[11px] text-slate-400 mt-0.5">In Roster</div>
                 </div>
-
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md">
                     <div class="text-xs text-slate-400">Total Worked</div>
                     <div class="text-2xl font-bold text-white mt-1">{{ reportData.stats.aggregate_hours }} <span class="text-xs font-normal text-slate-400">hrs</span></div>
                     <div class="text-[11px] text-slate-400 mt-0.5">All branches</div>
                 </div>
-
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md">
                     <div class="text-xs text-slate-400">Total Overtime</div>
                     <div class="text-2xl font-bold text-emerald-400 mt-1">+{{ reportData.stats.aggregate_overtime }} <span class="text-xs font-normal text-slate-400">hrs</span></div>
                     <div class="text-[11px] text-slate-400 mt-0.5">{{ reportData.stats.ot_count }} staff with OT</div>
                 </div>
-
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md">
                     <div class="text-xs text-slate-400">Total Undertime</div>
                     <div class="text-2xl font-bold text-rose-400 mt-1">-{{ reportData.stats.aggregate_undertime }} <span class="text-xs font-normal text-slate-400">hrs</span></div>
                     <div class="text-[11px] text-slate-400 mt-0.5">{{ reportData.stats.ut_count }} staff below 48h</div>
                 </div>
-
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md col-span-2 lg:col-span-1">
                     <div class="text-xs text-slate-400">Net Balance</div>
                     <div class="text-2xl font-bold mt-1" :class="reportData.stats.net_aggregate_balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
@@ -616,7 +634,7 @@
                                 class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
                             <option value="ALL">All Staff</option>
                             <option value="OVERTIME">Overtime (> 0h)</option>
-                            <option value="UNDERTIME">Undertime (&lt; 0h)</option>
+                            <option value="UNDERTIME">Undertime (< 0h)</option>
                         </select>
                     </div>
                 </div>
@@ -724,7 +742,6 @@
                             <div class="font-bold text-sm text-slate-100">{{ s.name }}</div>
                             <div class="text-xs text-slate-400">{{ s.designation }}</div>
                             <div class="text-[10px] text-emerald-400 font-mono mt-0.5">{{ s.employee_code }} • {{ s.allocated_to }}</div>
-                            <div v-if="s.gmail" class="text-[10px] text-slate-500 truncate max-w-[160px]">{{ s.gmail }}</div>
                         </div>
                     </div>
 
@@ -742,56 +759,11 @@
             </div>
         </div>
 
+        </template><!-- end v-else (not initialLoading) -->
+
     </main>
 
-    <!-- Google Sheet Connection & Setup Modal -->
-    <div v-if="connectModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
-        <div class="bg-navy-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 relative">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-                <h3 class="font-bold text-base text-white flex items-center gap-2">
-                    <i class="fa-brands fa-google-drive text-emerald-400"></i>
-                    <span>Connect Google Sheets Backend</span>
-                </h3>
-                <button @click="connectModal = false" class="text-slate-400 hover:text-slate-200">
-                    <i class="fa-solid fa-xmark text-lg"></i>
-                </button>
-            </div>
-
-            <div class="space-y-4 text-xs">
-                <div>
-                    <label class="block font-semibold text-slate-200 mb-1">Google Apps Script Web App URL</label>
-                    <input v-model="googleSheetWebAppUrl"
-                           type="url"
-                           placeholder="https://script.google.com/macros/s/AKfycb.../exec"
-                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none" />
-                    <p class="text-[11px] text-slate-400 mt-1">
-                        Tip: You can also paste this URL in <code>static/js/config.js</code> so every user is connected automatically!
-                    </p>
-                </div>
-
-                <div class="space-y-2">
-                    <div class="font-semibold text-slate-200">Quick Deployment Guide:</div>
-                    <ol class="list-decimal list-inside space-y-1.5 text-slate-400 text-[11px] leading-relaxed">
-                        <li>Open your Google Sheet: <a href="https://docs.google.com/spreadsheets/d/1fKcoTVzIqvA4fsq75oOxXLp2tqQ-e74UZNVhPWFp3-Y/edit?usp=sharing" target="_blank" class="text-emerald-400 underline font-medium">Open Google Sheet</a></li>
-                        <li>Click <strong>Extensions &gt; Apps Script</strong> in the top menu.</li>
-                        <li>Copy the script from <code>google_apps_script.js</code> and paste it there.</li>
-                        <li>Click <strong>Deploy &gt; New deployment</strong> &gt; Select <strong>Web app</strong>.</li>
-                        <li>Set 'Execute as': <strong>Me</strong>, and 'Who has access': <strong>Anyone</strong>.</li>
-                        <li>Click <strong>Deploy</strong>, copy the generated Web App URL, and paste it above!</li>
-                    </ol>
-                </div>
-            </div>
-
-            <div class="pt-3 border-t border-slate-800 flex justify-end gap-2">
-                <button @click="connectModal = false" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">
-                    Close
-                </button>
-                <button @click="saveGoogleSheetUrl" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md">
-                    Save & Sync Now
-                </button>
-            </div>
-        </div>
-    </div>
+    </template><!-- end v-if currentUser (authenticated app) -->
 
 </div>
 

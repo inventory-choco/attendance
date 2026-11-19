@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted, watch } = Vue;
+const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
 
 const app = createApp({
     setup() {
@@ -13,16 +13,17 @@ const app = createApp({
             AUTO_WO_DAYS: [4, 6] // Thursday (4) and Saturday (6)
         };
 
-        // Navigation State: 'daily' (selected staff breakdown), 'summary' (all staff), 'roster' (cards)
+        // Navigation State
         const currentTab = ref('daily');
         const loading = ref(false);
+        const initialLoading = ref(false);
         const toastMessage = ref('');
         const toastType = ref('success');
 
         // Google Sheet Connection State
-        const googleSheetWebAppUrl = ref(config.GOOGLE_SCRIPT_URL || localStorage.getItem('attendance_gas_url') || '');
-        const sheetConnectionStatus = ref('unconnected'); // 'connected', 'connecting', 'unconnected', 'error'
-        const sheetLastSyncTime = ref(localStorage.getItem('attendance_last_sync') || '');
+        const googleSheetWebAppUrl = ref(config.GOOGLE_SCRIPT_URL || '');
+        const sheetConnectionStatus = ref('unconnected');
+        const sheetLastSyncTime = ref('');
 
         // Master Dynamic Data (100% EMPTY ON START - LOADED ONLY FROM GOOGLE SHEET)
         const staffList = ref([]);
@@ -69,7 +70,7 @@ const app = createApp({
             staff_name: '',
             employee_code: '',
             date: todayStr,
-            status: 'Present',          // Present, WO, OFF, Paid Leave, Sick Leave, Unpaid Leave, Holiday
+            status: 'Present',
             check_in: '07:00',
             check_out: '17:00',
             break_minutes: 0,
@@ -162,22 +163,21 @@ const app = createApp({
         };
 
         // Selected Date Day Info (Timezone Safe)
-        // Thursday (4) & Saturday (6) are Week Offs (WO)
         const entryDateDayInfo = computed(() => {
             if (!entryForm.value.date) return { name: '', isWeekend: false };
             const parts = entryForm.value.date.split('-').map(Number);
             const d = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
-            const dayNum = d.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+            const dayNum = d.getDay();
             const name = d.toLocaleDateString('en-US', { weekday: 'long' });
             return {
                 name,
-                isWeekend: dayNum === 4 || dayNum === 6 // Thursday and Saturday are standard Week Offs
+                isWeekend: dayNum === 4 || dayNum === 6
             };
         });
 
         watch(() => entryForm.value.status, () => updateEntryHours());
 
-        // Quick Log a missing date directly from the card
+        // Quick Log a missing date
         const quickLogDate = (dateStr) => {
             if (dateStr > todayStr) {
                 showToast("Future dates cannot be logged.", "error");
@@ -185,7 +185,6 @@ const app = createApp({
             }
             entryForm.value.date = dateStr;
             updateEntryHours();
-            // Scroll to entry form smoothly
             const el = document.getElementById('entry-form-section');
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
             showToast(`Selected date: ${dateStr}. Review details and click ADD.`);
@@ -196,10 +195,7 @@ const app = createApp({
         // -------------------------------------------------------------
         const syncGoogleSheet = async (isBackground = false) => {
             const url = googleSheetWebAppUrl.value.trim();
-            if (!url) {
-                if (!isBackground) connectModal.value = true;
-                return;
-            }
+            if (!url) return;
 
             if (!isBackground) loading.value = true;
             sheetConnectionStatus.value = 'connecting';
@@ -209,31 +205,29 @@ const app = createApp({
                 const data = await res.json();
 
                 if (data.status === 'success') {
-                    // Update Staff from 'Staff_data'
                     if (data.staff && Array.isArray(data.staff)) {
                         staffList.value = data.staff;
                     }
-                    // Update Locations from 'Locations'
                     if (data.locations && Array.isArray(data.locations)) {
                         locations.value = data.locations;
                         if (!entryForm.value.location && data.locations.length > 0) {
                             entryForm.value.location = data.locations[0].branch;
                         }
                     }
-                    // Update Attendance from 'Attendance_data'
                     if (data.attendance && Array.isArray(data.attendance)) {
                         attendanceLogs.value = data.attendance;
                     }
 
-                    // Auto-select first staff if none selected
-                    if (!entryForm.value.staff_name && staffList.value.length > 0) {
+                    // Auto-select logged-in user's staff record if available
+                    if (!entryForm.value.staff_name && currentUser.value && currentUser.value.staff) {
+                        selectStaffForEntry(currentUser.value.staff);
+                    } else if (!entryForm.value.staff_name && staffList.value.length > 0) {
                         selectStaffForEntry(staffList.value[0]);
                     }
 
                     sheetConnectionStatus.value = 'connected';
                     const now = new Date().toLocaleTimeString();
                     sheetLastSyncTime.value = now;
-                    localStorage.setItem('attendance_last_sync', now);
 
                     if (!isBackground) {
                         showToast(`Connected! Loaded ${staffList.value.length} Staff & ${locations.value.length} Locations.`);
@@ -248,15 +242,6 @@ const app = createApp({
                 if (!isBackground) showToast("Could not connect to Google Sheet Web App", "error");
             } finally {
                 if (!isBackground) loading.value = false;
-            }
-        };
-
-        const saveGoogleSheetUrl = () => {
-            const url = googleSheetWebAppUrl.value.trim();
-            localStorage.setItem('attendance_gas_url', url);
-            connectModal.value = false;
-            if (url) {
-                syncGoogleSheet();
             }
         };
 
@@ -296,20 +281,17 @@ const app = createApp({
 
             try {
                 if (!googleSheetWebAppUrl.value) {
-                    showToast("Please connect your Google Sheet first!", "error");
-                    connectModal.value = true;
+                    showToast("Google Sheet backend not configured!", "error");
                     loading.value = false;
                     return;
                 }
 
                 let data = null;
-                // Attempt standard GET with URL-encoded payload (most reliable for Google Apps Script Web Apps)
                 try {
                     const encoded = encodeURIComponent(JSON.stringify(payload));
                     const res = await fetch(`${googleSheetWebAppUrl.value}?action=log_attendance&payload=${encoded}`);
                     data = await res.json();
                 } catch (getErr) {
-                    // Fallback to POST
                     console.warn("GET submission failed, trying POST:", getErr);
                     const postRes = await fetch(googleSheetWebAppUrl.value, {
                         method: 'POST',
@@ -344,9 +326,6 @@ const app = createApp({
                 }
 
                 showToast(`Saved! ${payload.name}: ${payload.status} (${payload.total_hours}h) on ${payload.date}`);
-
-                // CRITICAL REQUIREMENT:
-                // Keep the previously entered data (staff, code, location, times) so user can immediately add another date!
                 entryForm.value.notes = '';
 
             } catch (err) {
@@ -368,15 +347,13 @@ const app = createApp({
             return { start, end };
         };
 
-        // Partitions the cutoff period strictly into Monday-to-Sunday calendar weeks
-        // Standard Week Offs (WO): Thursday (4) and Saturday (6)
         const partitionMondayToSundayWeeks = (start, end) => {
             const weeks = [];
             let curr = new Date(start);
             let wNum = 1;
 
             while (curr <= end) {
-                const dayOfWeek = curr.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+                const dayOfWeek = curr.getDay();
                 const daysToSunday = (dayOfWeek === 0) ? 0 : (7 - dayOfWeek);
 
                 let wEnd = new Date(curr);
@@ -387,7 +364,6 @@ const app = createApp({
 
                 const daysCount = Math.round((wEnd - curr) / (1000 * 60 * 60 * 24)) + 1;
 
-                // Count working days (excluding Thursday=4 and Saturday=6)
                 let workdays = 0;
                 let temp = new Date(curr);
                 while (temp <= wEnd) {
@@ -398,7 +374,6 @@ const app = createApp({
                     temp.setDate(temp.getDate() + 1);
                 }
 
-                // Full week with 5 working days = 48.0h. Partial week prorated at 9.6h/day
                 const targetHours = (daysCount === 7 && workdays === 5)
                     ? 48.0
                     : Math.round(workdays * 9.6 * 10) / 10;
@@ -413,7 +388,6 @@ const app = createApp({
                     label: `Week ${wNum} (${curr.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${wEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
                 });
 
-                // Advance to next Monday
                 curr = new Date(wEnd);
                 curr.setDate(curr.getDate() + 1);
                 wNum++;
@@ -442,7 +416,7 @@ const app = createApp({
         const reportData = computed(() => {
             if (staffList.value.length === 0) {
                 return {
-                    cycle_label: 'No Cycle Selected',
+                    cycle_label: 'No Data Loaded',
                     weeks: [],
                     stats: { total_staff: 0, aggregate_hours: 0, aggregate_overtime: 0, aggregate_undertime: 0, net_aggregate_balance: 0, ot_count: 0, ut_count: 0 },
                     staff_reports: []
@@ -452,7 +426,6 @@ const app = createApp({
             const { start, end } = getCutoffDates(selectedYear.value, selectedMonth.value);
             const weeks = partitionMondayToSundayWeeks(start, end);
 
-            // Index attendance logs by employee_code + date AND name + date
             const logsMap = {};
             attendanceLogs.value.forEach(log => {
                 if (log.employee_code && log.date) {
@@ -488,8 +461,8 @@ const app = createApp({
 
                     while (curr <= endD) {
                         const dateStr = formatDateLocal(curr);
-                        const dayOfWeek = curr.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
-                        const isWeekOffDay = (dayOfWeek === 4 || dayOfWeek === 6); // Thursday and Saturday
+                        const dayOfWeek = curr.getDay();
+                        const isWeekOffDay = (dayOfWeek === 4 || dayOfWeek === 6);
                         const log = logsMap[`${staff.employee_code}_${dateStr}`] || logsMap[`${staff.name}_${dateStr}`];
 
                         let status = "Missing";
@@ -508,13 +481,11 @@ const app = createApp({
                             location = log.location || staff.allocated_to;
                             notes = log.notes || "";
                         } else {
-                            // Automatic Week Off on Thursday (4) and Saturday (6)
                             if (isWeekOffDay) {
                                 status = "WO";
                                 hours = 0.0;
                                 isAutoWO = true;
                             } else {
-                                // Unlogged working day
                                 status = "Missing";
                                 hours = 0.0;
                                 missingCount++;
@@ -617,7 +588,7 @@ const app = createApp({
             };
         });
 
-        // Report for the CURRENTLY SELECTED STAFF MEMBER
+        // Report for CURRENTLY SELECTED STAFF MEMBER
         const selectedStaffReport = computed(() => {
             if (!reportData.value || !reportData.value.staff_reports || reportData.value.staff_reports.length === 0) {
                 return null;
@@ -712,7 +683,7 @@ const app = createApp({
             const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
             XLSX.utils.book_append_sheet(wb, wsSummary, "Attendance Summary");
 
-            // SHEET 2: Daily Attendance (Every staff member, day-by-day with hours & locations)
+            // SHEET 2: Daily Attendance
             const dailyRows = [
                 ["STAFF DAILY ATTENDANCE LOGS"],
                 [`Period: ${rep.cycle_label}`],
@@ -759,36 +730,54 @@ const app = createApp({
         };
 
         // -------------------------------------------------------------
-        // GOOGLE SIGN-IN (GOOGLE IDENTITY SERVICES)
+        // GOOGLE SIGN-IN (GOOGLE IDENTITY SERVICES) WITH LOGIN GATE
         // -------------------------------------------------------------
-        const initGoogleAuth = () => {
-            const savedUser = localStorage.getItem('attendance_auth_user');
-            if (savedUser) {
-                try {
-                    currentUser.value = JSON.parse(savedUser);
-                } catch (e) {
-                    localStorage.removeItem('attendance_auth_user');
-                }
+
+        // Render the Google Sign-In button on the login page
+        const renderSignInButton = () => {
+            if (!config.GOOGLE_CLIENT_ID) {
+                authError.value = 'Google Client ID not configured. Please update config.js';
+                return;
             }
 
-            // If Google Client ID is configured and script loaded
-            if (config.GOOGLE_CLIENT_ID && typeof google !== 'undefined' && google.accounts) {
-                try {
-                    google.accounts.id.initialize({
-                        client_id: config.GOOGLE_CLIENT_ID,
-                        callback: handleGoogleAuthCallback
-                    });
-                    google.accounts.id.renderButton(
-                        document.getElementById("google-signin-btn"),
-                        { theme: "filled_blue", size: "medium", shape: "pill" }
-                    );
-                } catch (err) {
-                    console.warn("Google Auth Init Warning:", err);
+            const waitForGIS = (retries = 0) => {
+                if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+                    try {
+                        google.accounts.id.initialize({
+                            client_id: config.GOOGLE_CLIENT_ID,
+                            callback: handleGoogleAuthCallback,
+                            auto_select: false
+                        });
+
+                        const btnEl = document.getElementById('google-signin-btn-login');
+                        if (btnEl) {
+                            google.accounts.id.renderButton(btnEl, {
+                                theme: "filled_blue",
+                                size: "large",
+                                shape: "pill",
+                                width: 300,
+                                text: "signin_with"
+                            });
+                        }
+                    } catch (err) {
+                        console.warn("Google Auth Init Warning:", err);
+                    }
+                } else if (retries < 20) {
+                    // GIS script hasn't loaded yet, retry after 250ms
+                    setTimeout(() => waitForGIS(retries + 1), 250);
+                } else {
+                    authError.value = 'Google Sign-In failed to load. Please refresh the page.';
                 }
-            }
+            };
+
+            // Wait for DOM to render then initialize
+            nextTick(() => waitForGIS(0));
         };
 
-        const handleGoogleAuthCallback = (response) => {
+        const handleGoogleAuthCallback = async (response) => {
+            isAuthChecking.value = true;
+            authError.value = '';
+
             try {
                 // Decode JWT
                 const base64Url = response.credential.split('.')[1];
@@ -800,44 +789,189 @@ const app = createApp({
                 const userData = JSON.parse(jsonPayload);
                 const userEmail = (userData.email || '').toLowerCase().trim();
 
-                // Check authorization against staffList
-                const authorizedStaff = staffList.value.find(s => (s.gmail || '').toLowerCase().trim() === userEmail);
+                // Check token expiry (add 24h session timeout)
+                const tokenExp = userData.exp ? userData.exp * 1000 : Date.now() + 86400000;
 
-                if (authorizedStaff || staffList.value.length === 0) {
+                // STEP 1: Fetch staff list from Google Sheet to validate email
+                const url = googleSheetWebAppUrl.value.trim();
+                if (!url) {
+                    authError.value = 'Google Sheet backend not configured. Contact administrator.';
+                    isAuthChecking.value = false;
+                    return;
+                }
+
+                const res = await fetch(`${url}?action=get_all`);
+                const data = await res.json();
+
+                if (data.status !== 'success') {
+                    authError.value = 'Could not connect to backend. Try again later.';
+                    isAuthChecking.value = false;
+                    return;
+                }
+
+                // Update live data
+                if (data.staff && Array.isArray(data.staff)) {
+                    staffList.value = data.staff;
+                }
+                if (data.locations && Array.isArray(data.locations)) {
+                    locations.value = data.locations;
+                }
+                if (data.attendance && Array.isArray(data.attendance)) {
+                    attendanceLogs.value = data.attendance;
+                }
+
+                // STEP 2: Check email against Gmail column in Staff_data
+                const authorizedStaff = staffList.value.find(s =>
+                    (s.gmail || '').toLowerCase().trim() === userEmail
+                );
+
+                if (authorizedStaff) {
+                    // Authorized! Set current user and grant access
                     currentUser.value = {
                         name: userData.name,
                         email: userEmail,
                         picture: userData.picture,
-                        staff: authorizedStaff || null
+                        staff: authorizedStaff,
+                        exp: tokenExp
                     };
                     localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
-                    showToast(`Signed in as ${userData.name}!`);
+                    sheetConnectionStatus.value = 'connected';
+                    sheetLastSyncTime.value = new Date().toLocaleTimeString();
 
-                    // If staff matched, auto-select them!
+                    // Auto-select this staff member
+                    selectStaffForEntry(authorizedStaff);
+
+                    showToast(`Welcome, ${userData.name}! Loaded ${staffList.value.length} staff records.`);
+                } else {
+                    // NOT authorized
+                    authError.value = `Access Denied: ${userEmail} is not registered in the Staff Directory. Contact your administrator to add your Gmail.`;
+                    // Clear any stale saved session
+                    localStorage.removeItem('attendance_auth_user');
+                    currentUser.value = null;
+                    // Clear data so nothing leaks
+                    staffList.value = [];
+                    locations.value = [];
+                    attendanceLogs.value = [];
+                }
+
+            } catch (err) {
+                console.error("Auth Error:", err);
+                authError.value = 'Authentication failed. Please try again.';
+            } finally {
+                isAuthChecking.value = false;
+            }
+        };
+
+        // Try to restore session from localStorage
+        const tryRestoreSession = async () => {
+            const savedUser = localStorage.getItem('attendance_auth_user');
+            if (!savedUser) return false;
+
+            try {
+                const userData = JSON.parse(savedUser);
+
+                // Check session expiry (24h from login)
+                if (userData.exp && Date.now() > userData.exp) {
+                    localStorage.removeItem('attendance_auth_user');
+                    return false;
+                }
+
+                // Temporarily set user to show the app
+                currentUser.value = userData;
+                initialLoading.value = true;
+
+                // Validate by re-fetching staff data
+                const url = googleSheetWebAppUrl.value.trim();
+                if (!url) {
+                    currentUser.value = null;
+                    initialLoading.value = false;
+                    localStorage.removeItem('attendance_auth_user');
+                    return false;
+                }
+
+                const res = await fetch(`${url}?action=get_all`);
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    if (data.staff && Array.isArray(data.staff)) {
+                        staffList.value = data.staff;
+                    }
+                    if (data.locations && Array.isArray(data.locations)) {
+                        locations.value = data.locations;
+                    }
+                    if (data.attendance && Array.isArray(data.attendance)) {
+                        attendanceLogs.value = data.attendance;
+                    }
+
+                    // Re-verify email is still authorized
+                    const authorizedStaff = staffList.value.find(s =>
+                        (s.gmail || '').toLowerCase().trim() === (userData.email || '').toLowerCase().trim()
+                    );
+
                     if (authorizedStaff) {
-                        selectStaffForEntry(authorizedStaff);
+                        // Update staff reference in case data changed
+                        currentUser.value.staff = authorizedStaff;
+                        localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
+                        sheetConnectionStatus.value = 'connected';
+                        sheetLastSyncTime.value = new Date().toLocaleTimeString();
+
+                        if (!entryForm.value.staff_name) {
+                            selectStaffForEntry(authorizedStaff);
+                        }
+
+                        initialLoading.value = false;
+                        return true;
+                    } else {
+                        // Email was removed from staff list
+                        currentUser.value = null;
+                        localStorage.removeItem('attendance_auth_user');
+                        staffList.value = [];
+                        locations.value = [];
+                        attendanceLogs.value = [];
+                        initialLoading.value = false;
+                        return false;
                     }
                 } else {
-                    authError.value = `Access Denied: ${userEmail} is not authorized in Staff_data. Contact administrator.`;
-                    showToast("Access Denied: Email not in Staff roster", "error");
+                    // Could not connect, still allow cached session
+                    initialLoading.value = false;
+                    return true;
                 }
-            } catch (err) {
-                console.error("Auth Decode Error:", err);
-                showToast("Failed to authenticate with Google", "error");
+
+            } catch (e) {
+                console.warn("Session restore failed:", e);
+                localStorage.removeItem('attendance_auth_user');
+                currentUser.value = null;
+                initialLoading.value = false;
+                return false;
             }
         };
 
         const signOut = () => {
             currentUser.value = null;
             localStorage.removeItem('attendance_auth_user');
-            showToast("Signed out.");
+            // Clear all sensitive data from memory
+            staffList.value = [];
+            locations.value = [];
+            attendanceLogs.value = [];
+            entryForm.value.staff_name = '';
+            entryForm.value.employee_code = '';
+            entryForm.value.staff_id = null;
+            staffSearchQuery.value = '';
+            showToast("Signed out successfully.");
+            // Re-render login button after DOM updates
+            nextTick(() => renderSignInButton());
+        };
+
+        const retryLogin = () => {
+            authError.value = '';
+            renderSignInButton();
         };
 
         // -------------------------------------------------------------
         // AUTO-REFRESH EVERY 1 HOUR & INITIALIZATION
         // -------------------------------------------------------------
         onMounted(async () => {
-            // Determine active cycle for today (e.g. today Nov 19 -> Oct 20 to Nov 19 cycle)
+            // Determine active cycle for today
             const today = new Date();
             let cYear = today.getFullYear();
             let cMonth = today.getMonth() + 1;
@@ -849,21 +983,19 @@ const app = createApp({
             selectedMonth.value = cMonth;
             selectedCycle.value = `${cYear}-${cMonth}`;
 
-            // Sync from Google Sheet if URL exists
-            if (googleSheetWebAppUrl.value) {
-                await syncGoogleSheet();
-            } else {
-                sheetConnectionStatus.value = 'unconnected';
+            // Try to restore saved session (login persisted in localStorage)
+            const restored = await tryRestoreSession();
+
+            if (!restored) {
+                // No valid session — show login page and render Google Sign-In button
+                renderSignInButton();
             }
 
-            // Init Google Auth
-            initGoogleAuth();
-
-            // AUTO-RELOAD EVERY 1 HOUR (3600000 ms)
+            // AUTO-RELOAD EVERY 1 HOUR (only when authenticated)
             const refreshIntervalMs = (config.AUTO_REFRESH_MINUTES || 60) * 60 * 1000;
             setInterval(() => {
-                if (googleSheetWebAppUrl.value) {
-                    console.log("1-Hour Auto-Refresh: Refreshing attendance data from Google Sheet...");
+                if (currentUser.value && googleSheetWebAppUrl.value) {
+                    console.log("1-Hour Auto-Refresh: Refreshing attendance data...");
                     syncGoogleSheet(true);
                 }
             }, refreshIntervalMs);
@@ -872,6 +1004,7 @@ const app = createApp({
         return {
             currentTab,
             loading,
+            initialLoading,
             todayStr,
             toastMessage,
             toastType,
@@ -881,8 +1014,10 @@ const app = createApp({
             connectModal,
             authModal,
             currentUser,
+            isAuthChecking,
             authError,
             signOut,
+            retryLogin,
             availableCycles,
             selectedCycle,
             selectedYear,
@@ -909,7 +1044,6 @@ const app = createApp({
             updateEntryHours,
             submitAttendanceEntry,
             syncGoogleSheet,
-            saveGoogleSheetUrl,
             onCycleChange,
             exportExcel,
             printReport,
