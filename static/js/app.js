@@ -5,14 +5,16 @@ const app = createApp({
         // App Configuration
         const config = window.APP_CONFIG || {
             GOOGLE_SCRIPT_URL: '',
+            GOOGLE_CLIENT_ID: '',
             AUTO_REFRESH_MINUTES: 60,
             CUTOFF_START_DAY: 20,
             CUTOFF_END_DAY: 19,
-            WEEKLY_TARGET_HOURS: 48.0
+            WEEKLY_TARGET_HOURS: 48.0,
+            AUTO_WO_DAYS: [4, 6] // Thursday (4) and Saturday (6)
         };
 
-        // Navigation State
-        const currentTab = ref('reports'); // 'reports', 'staff', 'sync'
+        // Navigation State: 'daily' (selected staff breakdown), 'summary' (all staff), 'roster' (cards)
+        const currentTab = ref('daily');
         const loading = ref(false);
         const toastMessage = ref('');
         const toastType = ref('success');
@@ -27,7 +29,12 @@ const app = createApp({
         const locations = ref([]);
         const attendanceLogs = ref([]);
 
-        // Date Helpers (Timezone safe)
+        // Authentication State (Google Sign-In)
+        const currentUser = ref(null);
+        const isAuthChecking = ref(false);
+        const authError = ref('');
+
+        // Date Helpers (Timezone safe for UAE GMT+4)
         const getTodayLocalStr = () => {
             const d = new Date();
             const y = d.getFullYear();
@@ -63,10 +70,10 @@ const app = createApp({
             employee_code: '',
             date: todayStr,
             status: 'Present',          // Present, WO, OFF, Paid Leave, Sick Leave, Unpaid Leave, Holiday
-            check_in: '08:00',
+            check_in: '07:00',
             check_out: '17:00',
             break_minutes: 0,
-            total_hours: 9.0,
+            total_hours: 10.0,
             location: '',
             notes: ''
         });
@@ -79,6 +86,7 @@ const app = createApp({
 
         // Modals
         const connectModal = ref(false);
+        const authModal = ref(false);
 
         // Toast Helper
         const showToast = (msg, type = 'success') => {
@@ -149,24 +157,39 @@ const app = createApp({
                 const diff = (outMin - inMin - (entryForm.value.break_minutes || 0)) / 60.0;
                 entryForm.value.total_hours = parseFloat(Math.max(0, diff).toFixed(2));
             } catch (e) {
-                // ignore parse errors
+                // ignore
             }
         };
 
         // Selected Date Day Info (Timezone Safe)
+        // Thursday (4) & Saturday (6) are Week Offs (WO)
         const entryDateDayInfo = computed(() => {
             if (!entryForm.value.date) return { name: '', isWeekend: false };
             const parts = entryForm.value.date.split('-').map(Number);
             const d = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
-            const dayNum = d.getDay(); // 0=Sun, 5=Fri
+            const dayNum = d.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
             const name = d.toLocaleDateString('en-US', { weekday: 'long' });
             return {
                 name,
-                isWeekend: dayNum === 0 || dayNum === 5 // Sunday (0) and Friday (5) in UAE schedule
+                isWeekend: dayNum === 4 || dayNum === 6 // Thursday and Saturday are standard Week Offs
             };
         });
 
         watch(() => entryForm.value.status, () => updateEntryHours());
+
+        // Quick Log a missing date directly from the card
+        const quickLogDate = (dateStr) => {
+            if (dateStr > todayStr) {
+                showToast("Future dates cannot be logged.", "error");
+                return;
+            }
+            entryForm.value.date = dateStr;
+            updateEntryHours();
+            // Scroll to entry form smoothly
+            const el = document.getElementById('entry-form-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            showToast(`Selected date: ${dateStr}. Review details and click ADD.`);
+        };
 
         // -------------------------------------------------------------
         // LIVE GOOGLE SHEET DATA SYNC
@@ -272,39 +295,55 @@ const app = createApp({
             };
 
             try {
-                if (googleSheetWebAppUrl.value) {
-                    let data = null;
-                    try {
-                        const res = await fetch(googleSheetWebAppUrl.value, {
-                            method: 'POST',
-                            body: JSON.stringify(payload)
-                        });
-                        data = await res.json();
-                    } catch (postErr) {
-                        // Fallback to GET for restrictive firewalls
-                        const encoded = encodeURIComponent(JSON.stringify(payload));
-                        const fallbackRes = await fetch(`${googleSheetWebAppUrl.value}?action=log_attendance&payload=${encoded}`);
-                        data = await fallbackRes.json();
-                    }
+                if (!googleSheetWebAppUrl.value) {
+                    showToast("Please connect your Google Sheet first!", "error");
+                    connectModal.value = true;
+                    loading.value = false;
+                    return;
+                }
 
-                    if (data && data.status === 'duplicate') {
-                        if (confirm(`Duplicate Entry: Attendance is already logged for ${entryForm.value.staff_name} on ${entryForm.value.date}.\n\nDo you want to update this existing record?`)) {
-                            await submitAttendanceEntry(true);
-                        }
-                        loading.value = false;
-                        return;
+                let data = null;
+                // Attempt standard GET with URL-encoded payload (most reliable for Google Apps Script Web Apps)
+                try {
+                    const encoded = encodeURIComponent(JSON.stringify(payload));
+                    const res = await fetch(`${googleSheetWebAppUrl.value}?action=log_attendance&payload=${encoded}`);
+                    data = await res.json();
+                } catch (getErr) {
+                    // Fallback to POST
+                    console.warn("GET submission failed, trying POST:", getErr);
+                    const postRes = await fetch(googleSheetWebAppUrl.value, {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    data = await postRes.json();
+                }
+
+                if (data && data.status === 'duplicate') {
+                    if (confirm(`Duplicate Entry: Attendance is already logged for ${entryForm.value.staff_name} on ${entryForm.value.date}.\n\nDo you want to update this existing record?`)) {
+                        await submitAttendanceEntry(true);
                     }
+                    loading.value = false;
+                    return;
+                }
+
+                if (data && data.status === 'error') {
+                    showToast("Error from Google Sheet: " + data.message, "error");
+                    loading.value = false;
+                    return;
                 }
 
                 // Update local logs in memory
-                const existingIdx = attendanceLogs.value.findIndex(l => (l.employee_code === payload.employee_code || l.name === payload.name) && l.date === payload.date);
+                const existingIdx = attendanceLogs.value.findIndex(l =>
+                    (l.employee_code === payload.employee_code || l.name === payload.name) && l.date === payload.date
+                );
+
                 if (existingIdx >= 0) {
                     attendanceLogs.value[existingIdx] = payload;
                 } else {
                     attendanceLogs.value.unshift(payload);
                 }
 
-                showToast(`Recorded ${payload.status} (${payload.total_hours}h) for ${payload.name} on ${payload.date}!`);
+                showToast(`Saved! ${payload.name}: ${payload.status} (${payload.total_hours}h) on ${payload.date}`);
 
                 // CRITICAL REQUIREMENT:
                 // Keep the previously entered data (staff, code, location, times) so user can immediately add another date!
@@ -312,14 +351,14 @@ const app = createApp({
 
             } catch (err) {
                 console.error("Submit Attendance Error:", err);
-                showToast("Error recording attendance to Google Sheet", "error");
+                showToast("Error saving to Google Sheet: " + (err.message || err), "error");
             } finally {
                 loading.value = false;
             }
         };
 
         // -------------------------------------------------------------
-        // SIMPLE REPORTS & 48-HOUR WEEKLY CALCULATIONS
+        // CALENDAR WEEKS: MONDAY TO SUNDAY PARTITIONING
         // -------------------------------------------------------------
         const getCutoffDates = (year, month) => {
             const start = new Date(year, month - 1, 20, 12, 0, 0);
@@ -329,41 +368,57 @@ const app = createApp({
             return { start, end };
         };
 
-        const partitionWeeks = (start, end) => {
+        // Partitions the cutoff period strictly into Monday-to-Sunday calendar weeks
+        // Standard Week Offs (WO): Thursday (4) and Saturday (6)
+        const partitionMondayToSundayWeeks = (start, end) => {
             const weeks = [];
             let curr = new Date(start);
             let wNum = 1;
+
             while (curr <= end) {
+                const dayOfWeek = curr.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+                const daysToSunday = (dayOfWeek === 0) ? 0 : (7 - dayOfWeek);
+
                 let wEnd = new Date(curr);
-                wEnd.setDate(wEnd.getDate() + 6);
-                if (wEnd > end) wEnd = new Date(end);
+                wEnd.setDate(wEnd.getDate() + daysToSunday);
+                if (wEnd > end) {
+                    wEnd = new Date(end);
+                }
 
                 const daysCount = Math.round((wEnd - curr) / (1000 * 60 * 60 * 24)) + 1;
-                let target = 48.0;
-                if (daysCount < 7) {
-                    // Prorate working days (excluding Friday=5 & Sunday=0)
-                    let workdays = 0;
-                    let temp = new Date(curr);
-                    while (temp <= wEnd) {
-                        const day = temp.getDay();
-                        if (day !== 0 && day !== 5) workdays++;
-                        temp.setDate(temp.getDate() + 1);
+
+                // Count working days (excluding Thursday=4 and Saturday=6)
+                let workdays = 0;
+                let temp = new Date(curr);
+                while (temp <= wEnd) {
+                    const d = temp.getDay();
+                    if (d !== 4 && d !== 6) {
+                        workdays++;
                     }
-                    target = Math.round(workdays * 9.6 * 10) / 10;
+                    temp.setDate(temp.getDate() + 1);
                 }
+
+                // Full week with 5 working days = 48.0h. Partial week prorated at 9.6h/day
+                const targetHours = (daysCount === 7 && workdays === 5)
+                    ? 48.0
+                    : Math.round(workdays * 9.6 * 10) / 10;
 
                 weeks.push({
                     week_number: wNum,
                     start_date: formatDateLocal(curr),
                     end_date: formatDateLocal(wEnd),
                     days_count: daysCount,
-                    target_hours: target,
+                    working_days: workdays,
+                    target_hours: targetHours,
                     label: `Week ${wNum} (${curr.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${wEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
                 });
 
-                curr.setDate(curr.getDate() + daysCount);
+                // Advance to next Monday
+                curr = new Date(wEnd);
+                curr.setDate(curr.getDate() + 1);
                 wNum++;
             }
+
             return weeks;
         };
 
@@ -383,7 +438,7 @@ const app = createApp({
             return list;
         });
 
-        // Compute Full Attendance Report
+        // Compute Full Attendance Report & Weekly Breakdowns
         const reportData = computed(() => {
             if (staffList.value.length === 0) {
                 return {
@@ -395,7 +450,7 @@ const app = createApp({
             }
 
             const { start, end } = getCutoffDates(selectedYear.value, selectedMonth.value);
-            const weeks = partitionWeeks(start, end);
+            const weeks = partitionMondayToSundayWeeks(start, end);
 
             // Index attendance logs by employee_code + date AND name + date
             const logsMap = {};
@@ -421,6 +476,7 @@ const app = createApp({
                 let staffTotalUT = 0;
                 let daysPresent = 0;
                 let daysWO = 0;
+                let missingCount = 0;
 
                 const weeklyBreakdown = weeks.map(w => {
                     let wHours = 0;
@@ -432,22 +488,36 @@ const app = createApp({
 
                     while (curr <= endD) {
                         const dateStr = formatDateLocal(curr);
-                        const dayOfWeek = curr.getDay(); // 0=Sun, 5=Fri
+                        const dayOfWeek = curr.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+                        const isWeekOffDay = (dayOfWeek === 4 || dayOfWeek === 6); // Thursday and Saturday
                         const log = logsMap[`${staff.employee_code}_${dateStr}`] || logsMap[`${staff.name}_${dateStr}`];
 
-                        let status = "Not Logged";
+                        let status = "Missing";
                         let hours = 0.0;
                         let isAutoWO = false;
+                        let checkIn = "";
+                        let checkOut = "";
+                        let location = staff.allocated_to;
+                        let notes = "";
 
                         if (log) {
                             status = log.status || "Present";
                             hours = parseFloat(log.total_hours) || 0.0;
+                            checkIn = log.check_in || "";
+                            checkOut = log.check_out || "";
+                            location = log.location || staff.allocated_to;
+                            notes = log.notes || "";
                         } else {
-                            // Automatic Week Off on Friday & Sunday!
-                            if (dayOfWeek === 0 || dayOfWeek === 5) {
+                            // Automatic Week Off on Thursday (4) and Saturday (6)
+                            if (isWeekOffDay) {
                                 status = "WO";
                                 hours = 0.0;
                                 isAutoWO = true;
+                            } else {
+                                // Unlogged working day
+                                status = "Missing";
+                                hours = 0.0;
+                                missingCount++;
                             }
                         }
 
@@ -459,9 +529,15 @@ const app = createApp({
                             date: dateStr,
                             day_name: curr.toLocaleDateString('en-US', { weekday: 'short' }),
                             day_num: curr.getDate(),
+                            month_name: curr.toLocaleDateString('en-US', { month: 'short' }),
                             hours,
                             status,
-                            isAutoWO
+                            isAutoWO,
+                            isWeekOffDay,
+                            checkIn,
+                            checkOut,
+                            location,
+                            notes
                         });
 
                         curr.setDate(curr.getDate() + 1);
@@ -520,6 +596,7 @@ const app = createApp({
                     net_monthly_balance: netBalance,
                     days_present_count: daysPresent,
                     days_wo_count: daysWO,
+                    missing_count: missingCount,
                     status: netBalance > 0 ? 'OVERTIME' : (netBalance < 0 ? 'UNDERTIME' : 'TARGET_MET')
                 };
             });
@@ -540,7 +617,22 @@ const app = createApp({
             };
         });
 
-        // Filtered Staff Reports
+        // Report for the CURRENTLY SELECTED STAFF MEMBER
+        const selectedStaffReport = computed(() => {
+            if (!reportData.value || !reportData.value.staff_reports || reportData.value.staff_reports.length === 0) {
+                return null;
+            }
+            if (!entryForm.value.staff_name) {
+                return reportData.value.staff_reports[0] || null;
+            }
+            const match = reportData.value.staff_reports.find(s =>
+                s.employee_code === entryForm.value.employee_code ||
+                s.name.toLowerCase() === entryForm.value.staff_name.toLowerCase()
+            );
+            return match || reportData.value.staff_reports[0];
+        });
+
+        // Filtered Staff Reports (For Organization Summary table)
         const filteredStaffReports = computed(() => {
             if (!reportData.value || !reportData.value.staff_reports) return [];
             return reportData.value.staff_reports.filter(s => {
@@ -565,7 +657,7 @@ const app = createApp({
         };
 
         // -------------------------------------------------------------
-        // EXCEL DOWNLOAD (.XLSX) WITH CLIENT-SIDE SHEETJS
+        // EXCEL DOWNLOAD (.XLSX) WITH 2 SHEETS: SUMMARY + DAILY
         // -------------------------------------------------------------
         const exportExcel = () => {
             if (typeof XLSX === 'undefined') {
@@ -576,16 +668,17 @@ const app = createApp({
             const rep = reportData.value;
             const wb = XLSX.utils.book_new();
 
+            // SHEET 1: Attendance Summary
             const summaryRows = [
-                ["STAFF ATTENDANCE REPORT"],
+                ["STAFF ATTENDANCE REPORT — SUMMARY"],
                 [`Period: ${rep.cycle_label}`],
-                ["Target: 48 Hours/Week | Cutoff: 20th to 19th | Fri & Sun Auto WO"],
+                ["Target: 48 Hours/Week (Monday to Sunday) | Cutoff: 20th to 19th | Thursday & Saturday Auto WO"],
                 [],
                 [
-                    "Sl", "Employee Code", "Employee Name", "Designation", "Branch", "WhatsApp",
-                    "W1 (48h)", "W2 (48h)", "W3 (48h)", "W4 (48h)", "W5 Rem",
+                    "Sl", "Employee Code", "Employee Name", "Designation", "Branch", "WhatsApp", "Gmail",
+                    "W1", "W2", "W3", "W4", "W5 Rem",
                     "Total Hours", "Target Hrs", "Overtime (OT)", "Undertime (UT)", "Net Balance",
-                    "Days Present", "Week Offs (WO)"
+                    "Days Present", "Week Offs (WO)", "Missing Days"
                 ]
             ];
 
@@ -603,6 +696,7 @@ const app = createApp({
                     s.designation,
                     s.allocated_to,
                     s.whatsapp,
+                    s.gmail,
                     w1, w2, w3, w4, w5,
                     s.total_month_hours,
                     s.total_target_hours,
@@ -610,14 +704,51 @@ const app = createApp({
                     s.total_undertime,
                     s.net_monthly_balance,
                     s.days_present_count,
-                    s.days_wo_count
+                    s.days_wo_count,
+                    s.missing_count
                 ]);
             });
 
-            const ws1 = XLSX.utils.aoa_to_sheet(summaryRows);
-            XLSX.utils.book_append_sheet(wb, ws1, "Attendance Summary");
+            const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+            XLSX.utils.book_append_sheet(wb, wsSummary, "Attendance Summary");
+
+            // SHEET 2: Daily Attendance (Every staff member, day-by-day with hours & locations)
+            const dailyRows = [
+                ["STAFF DAILY ATTENDANCE LOGS"],
+                [`Period: ${rep.cycle_label}`],
+                ["Standard Week Offs: Thursday & Saturday | Target: 48 Hours/Week (Mon to Sun)"],
+                [],
+                [
+                    "Date", "Day", "Employee Code", "Employee Name", "Designation",
+                    "Branch / Location", "Status", "From Time", "To Time", "Hours Worked", "Notes"
+                ]
+            ];
+
+            rep.staff_reports.forEach(s => {
+                s.weekly_breakdown.forEach(w => {
+                    w.days.forEach(d => {
+                        dailyRows.push([
+                            d.date,
+                            d.day_name,
+                            s.employee_code,
+                            s.name,
+                            s.designation,
+                            d.location || s.allocated_to,
+                            d.status,
+                            d.checkIn || "",
+                            d.checkOut || "",
+                            d.hours,
+                            d.notes || ""
+                        ]);
+                    });
+                });
+            });
+
+            const wsDaily = XLSX.utils.aoa_to_sheet(dailyRows);
+            XLSX.utils.book_append_sheet(wb, wsDaily, "Daily Attendance");
+
             XLSX.writeFile(wb, `Staff_Attendance_Report_${selectedYear.value}_${selectedMonth.value}.xlsx`);
-            showToast("Excel report downloaded!");
+            showToast("Downloaded 2-Sheet Excel Report (Summary + Daily Attendance)!");
         };
 
         const printReport = () => window.print();
@@ -628,10 +759,85 @@ const app = createApp({
         };
 
         // -------------------------------------------------------------
+        // GOOGLE SIGN-IN (GOOGLE IDENTITY SERVICES)
+        // -------------------------------------------------------------
+        const initGoogleAuth = () => {
+            const savedUser = localStorage.getItem('attendance_auth_user');
+            if (savedUser) {
+                try {
+                    currentUser.value = JSON.parse(savedUser);
+                } catch (e) {
+                    localStorage.removeItem('attendance_auth_user');
+                }
+            }
+
+            // If Google Client ID is configured and script loaded
+            if (config.GOOGLE_CLIENT_ID && typeof google !== 'undefined' && google.accounts) {
+                try {
+                    google.accounts.id.initialize({
+                        client_id: config.GOOGLE_CLIENT_ID,
+                        callback: handleGoogleAuthCallback
+                    });
+                    google.accounts.id.renderButton(
+                        document.getElementById("google-signin-btn"),
+                        { theme: "filled_blue", size: "medium", shape: "pill" }
+                    );
+                } catch (err) {
+                    console.warn("Google Auth Init Warning:", err);
+                }
+            }
+        };
+
+        const handleGoogleAuthCallback = (response) => {
+            try {
+                // Decode JWT
+                const base64Url = response.credential.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+
+                const userData = JSON.parse(jsonPayload);
+                const userEmail = (userData.email || '').toLowerCase().trim();
+
+                // Check authorization against staffList
+                const authorizedStaff = staffList.value.find(s => (s.gmail || '').toLowerCase().trim() === userEmail);
+
+                if (authorizedStaff || staffList.value.length === 0) {
+                    currentUser.value = {
+                        name: userData.name,
+                        email: userEmail,
+                        picture: userData.picture,
+                        staff: authorizedStaff || null
+                    };
+                    localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
+                    showToast(`Signed in as ${userData.name}!`);
+
+                    // If staff matched, auto-select them!
+                    if (authorizedStaff) {
+                        selectStaffForEntry(authorizedStaff);
+                    }
+                } else {
+                    authError.value = `Access Denied: ${userEmail} is not authorized in Staff_data. Contact administrator.`;
+                    showToast("Access Denied: Email not in Staff roster", "error");
+                }
+            } catch (err) {
+                console.error("Auth Decode Error:", err);
+                showToast("Failed to authenticate with Google", "error");
+            }
+        };
+
+        const signOut = () => {
+            currentUser.value = null;
+            localStorage.removeItem('attendance_auth_user');
+            showToast("Signed out.");
+        };
+
+        // -------------------------------------------------------------
         // AUTO-REFRESH EVERY 1 HOUR & INITIALIZATION
         // -------------------------------------------------------------
         onMounted(async () => {
-            // Determine active cycle for today
+            // Determine active cycle for today (e.g. today Nov 19 -> Oct 20 to Nov 19 cycle)
             const today = new Date();
             let cYear = today.getFullYear();
             let cMonth = today.getMonth() + 1;
@@ -649,6 +855,9 @@ const app = createApp({
             } else {
                 sheetConnectionStatus.value = 'unconnected';
             }
+
+            // Init Google Auth
+            initGoogleAuth();
 
             // AUTO-RELOAD EVERY 1 HOUR (3600000 ms)
             const refreshIntervalMs = (config.AUTO_REFRESH_MINUTES || 60) * 60 * 1000;
@@ -670,6 +879,10 @@ const app = createApp({
             sheetConnectionStatus,
             sheetLastSyncTime,
             connectModal,
+            authModal,
+            currentUser,
+            authError,
+            signOut,
             availableCycles,
             selectedCycle,
             selectedYear,
@@ -680,6 +893,7 @@ const app = createApp({
             statusFilter,
             staffList,
             reportData,
+            selectedStaffReport,
             filteredStaffReports,
             entryForm,
             staffSearchQuery,
@@ -691,6 +905,7 @@ const app = createApp({
             entryDateDayInfo,
             selectStaffForEntry,
             selectLocationForEntry,
+            quickLogDate,
             updateEntryHours,
             submitAttendanceEntry,
             syncGoogleSheet,

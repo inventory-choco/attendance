@@ -11,8 +11,16 @@
             theme: {
                 extend: {
                     colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d'
+                        },
                         navy: {
                             800: '#1e293b',
+                            850: '#172033',
                             900: '#0f172a',
                             950: '#020617'
                         }
@@ -21,16 +29,18 @@
             }
         }
     </script>
-    <!-- FontAwesome Icons -->
+    <!-- FontAwesome 6 Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- SheetJS for Client-Side Excel Export on GitHub Pages -->
+    <!-- SheetJS for Client-Side Multi-Sheet Excel Export -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Google Identity Services (Google Sign-In) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- Custom CSS -->
     <link rel="stylesheet" href="./static/css/style.css">
     <!-- Vue 3 CDN -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 </head>
-<body class="bg-navy-950 text-slate-100 min-h-screen antialiased selection:bg-emerald-500 selection:text-white">
+<body class="bg-navy-950 text-slate-100 min-h-screen antialiased selection:bg-emerald-500 selection:text-white font-sans">
 <div id="app" v-cloak class="flex flex-col min-h-screen">
 
     <!-- Toast Notification Popup -->
@@ -48,16 +58,16 @@
             <div class="flex items-center justify-between h-16">
                 <!-- Brand Title -->
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 flex-shrink-0">
-                        <i class="fa-solid fa-user-clock text-white text-lg"></i>
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 flex-shrink-0">
+                        <i class="fa-solid fa-calendar-check text-white text-lg"></i>
                     </div>
                     <div>
                         <div class="flex items-center gap-2 flex-wrap">
-                            <span class="font-bold text-base sm:text-lg tracking-tight text-white">Staff Attendance</span>
-                            <span class="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20">48h Weekly Target</span>
-                            <span class="hidden sm:inline text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">20th–19th Cutoff</span>
+                            <span class="font-bold text-base sm:text-lg tracking-tight text-white">Attendance Portal</span>
+                            <span class="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20">48h Target (Mon–Sun)</span>
+                            <span class="hidden sm:inline text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium border border-slate-700">Thu & Sat WO</span>
                         </div>
-                        <p class="text-[11px] text-slate-400 hidden sm:block">Automated Friday & Sunday WO • 1-Hour Auto-Refresh</p>
+                        <p class="text-[11px] text-slate-400 hidden sm:block">Monthly Cutoff: 20th to 19th • Auto-refresh 1h</p>
                     </div>
                 </div>
 
@@ -79,35 +89,57 @@
                         <i class="fa-solid fa-arrows-rotate" :class="{ 'spinning': loading }"></i>
                     </button>
 
-                    <!-- Export Excel Button -->
+                    <!-- Export Excel Button (2 Sheets: Summary + Daily Attendance) -->
                     <button @click="exportExcel"
                             :disabled="staffList.length === 0"
-                            title="Download Formatted Excel Report"
+                            title="Download Formatted Excel with Summary & Daily Attendance"
                             class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5">
-                        <i class="fa-solid fa-file-excel"></i>
-                        <span class="hidden sm:inline">Download Excel</span>
+                        <i class="fa-solid fa-file-arrow-down"></i>
+                        <span class="hidden sm:inline">Export Excel</span>
                     </button>
+
+                    <!-- Google User Profile / Login Button -->
+                    <div v-if="currentUser" class="flex items-center gap-2 pl-2 border-l border-slate-800">
+                        <img v-if="currentUser.picture" :src="currentUser.picture" class="w-8 h-8 rounded-full border border-emerald-500" />
+                        <div class="hidden md:block text-left text-[11px] leading-tight">
+                            <div class="font-bold text-slate-200">{{ currentUser.name }}</div>
+                            <div class="text-slate-400 truncate max-w-[120px]">{{ currentUser.email }}</div>
+                        </div>
+                        <button @click="signOut" title="Sign Out" class="text-slate-400 hover:text-rose-400 text-xs p-1">
+                            <i class="fa-solid fa-right-from-bracket"></i>
+                        </button>
+                    </div>
+                    <div v-else id="google-signin-btn" class="hidden sm:block"></div>
                 </div>
             </div>
 
             <!-- Tab Navigation Bar -->
             <div class="flex space-x-1 overflow-x-auto py-2 no-scrollbar text-xs font-medium border-t border-slate-800/60">
-                <button @click="currentTab = 'reports'"
+                <button @click="currentTab = 'daily'"
                         class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
-                        :class="currentTab === 'reports' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
+                        :class="currentTab === 'daily' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
+                    <i class="fa-solid fa-calendar-days"></i>
+                    <span>Selected Staff Daily Breakdown</span>
+                </button>
+
+                <button @click="currentTab = 'summary'"
+                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        :class="currentTab === 'summary' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
                     <i class="fa-solid fa-table-list"></i>
-                    <span>Attendance Summary</span>
+                    <span>Organization Summary Table</span>
                 </button>
-                <button @click="currentTab = 'staff'"
+
+                <button @click="currentTab = 'roster'"
                         class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
-                        :class="currentTab === 'staff' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
+                        :class="currentTab === 'roster' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
                     <i class="fa-solid fa-id-badge"></i>
-                    <span>Staff Roster ({{ staffList.length }})</span>
+                    <span>Staff Directory ({{ staffList.length }})</span>
                 </button>
+
                 <button @click="connectModal = true"
                         class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
                     <i class="fa-brands fa-google-drive text-emerald-400"></i>
-                    <span>Google Sheets Connection</span>
+                    <span>Backend Connection & Setup</span>
                 </button>
             </div>
         </div>
@@ -118,31 +150,29 @@
 
         <!-- Banner: Empty State / Setup Notice (Shown if Google Sheet URL is not configured) -->
         <div v-if="!googleSheetWebAppUrl"
-             class="bg-gradient-to-r from-amber-950/40 via-navy-900 to-navy-900 border border-amber-800/60 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+             class="bg-navy-900 border border-amber-800/60 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
             <div class="flex items-center gap-4">
                 <div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xl flex-shrink-0 border border-amber-500/20">
-                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                    <i class="fa-solid fa-link-slash"></i>
                 </div>
                 <div>
-                    <h3 class="font-bold text-sm sm:text-base text-amber-200">Connect Google Sheet to Load Live Data</h3>
+                    <h3 class="font-bold text-sm sm:text-base text-amber-200">Connect Your Google Sheet</h3>
                     <p class="text-xs text-slate-300 mt-1 max-w-xl">
-                        Your staff list, locations, and attendance are loaded directly from your Google Sheet. No private employee data is stored in GitHub.
+                        Deploy <code>google_apps_script.js</code> in your Google Sheet, paste your Web App URL into <code>static/js/config.js</code>, and push to GitHub so all staff connect automatically.
                     </p>
                 </div>
             </div>
             <button @click="connectModal = true"
                     class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-navy-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition flex items-center gap-2 whitespace-nowrap">
-                <i class="fa-solid fa-link"></i>
+                <i class="fa-solid fa-wrench"></i>
                 <span>Connect Google Sheet (60s Setup)</span>
             </button>
         </div>
 
         <!-- ========================================================= -->
-        <!-- SMART ATTENDANCE ENTRY (MOBILE & DESKTOP)                 -->
+        <!-- SECTION 1: LOG STAFF ATTENDANCE (SMART ENTRY FORM)        -->
         <!-- ========================================================= -->
-        <div v-if="staffList.length > 0" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative overflow-hidden">
-            <div class="absolute -top-12 -right-12 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
-
+        <div id="entry-form-section" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative overflow-hidden">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-5">
                 <div>
                     <h2 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
@@ -150,7 +180,7 @@
                         <span>Log Staff Attendance</span>
                     </h2>
                     <p class="text-xs text-slate-400 mt-0.5">
-                        Select staff, pick date, enter shift, and click <strong>ADD</strong>. Previous staff and branch stay selected for quick multiple entries!
+                        Select staff, pick date, enter shift, and click <strong>ADD ATTENDANCE</strong>. Entered staff & branch stay selected for quick consecutive entries!
                     </p>
                 </div>
 
@@ -159,7 +189,7 @@
                         <i class="fa-solid fa-calendar text-emerald-400"></i>
                         <span>{{ entryForm.date }}</span>
                         <span v-if="entryDateDayInfo.name" class="font-bold" :class="entryDateDayInfo.isWeekend ? 'text-amber-400' : 'text-slate-200'">
-                            ({{ entryDateDayInfo.name }}{{ entryDateDayInfo.isWeekend ? ' - WO' : '' }})
+                            ({{ entryDateDayInfo.name }}{{ entryDateDayInfo.isWeekend ? ' - Thu/Sat WO' : '' }})
                         </span>
                     </span>
                     <span v-if="entryForm.status === 'Present'" class="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20">
@@ -243,7 +273,7 @@
                     <select v-model="entryForm.status"
                             class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-semibold">
                         <option value="Present">Present (Work Shift)</option>
-                        <option value="WO">WO (Week Off - Fri / Sun)</option>
+                        <option value="WO">WO (Week Off - Thu / Sat)</option>
                         <option value="OFF">OFF (Unscheduled Off / Comp Off)</option>
                         <option value="Paid Leave">Paid Leave (PL)</option>
                         <option value="Sick Leave">Sick Leave (SL)</option>
@@ -319,65 +349,219 @@
             <!-- Action Bar -->
             <div class="mt-5 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div class="text-xs text-slate-400">
-                    Active: <strong class="text-slate-200">{{ entryForm.staff_name }}</strong> ({{ entryForm.employee_code }}) • Branch: <strong class="text-slate-200">{{ entryForm.location }}</strong>
+                    Active: <strong class="text-slate-200">{{ entryForm.staff_name || 'None Selected' }}</strong> ({{ entryForm.employee_code || '---' }}) • Branch: <strong class="text-slate-200">{{ entryForm.location || '---' }}</strong>
                 </div>
 
                 <button @click="submitAttendanceEntry(false)"
                         :disabled="loading"
-                        class="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs shadow-lg shadow-emerald-500/25 transition flex items-center justify-center gap-2">
+                        class="w-full sm:w-auto px-7 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs shadow-lg shadow-emerald-500/25 transition flex items-center justify-center gap-2">
                     <i class="fa-solid fa-plus-circle text-sm"></i>
                     <span>ADD ATTENDANCE</span>
                 </button>
             </div>
         </div>
 
-        <!-- ========================================================= -->
-        <!-- TAB 1: SIMPLE ATTENDANCE REPORT                           -->
-        <!-- ========================================================= -->
-        <div v-if="currentTab === 'reports'" class="space-y-6">
-
-            <!-- Filter & Cycle Selector -->
-            <div class="bg-navy-900 rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-emerald-400 flex-shrink-0">
-                        <i class="fa-regular fa-calendar-check text-lg"></i>
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Attendance Cutoff Period (20th–19th)</label>
-                        <select v-model="selectedCycle" @change="onCycleChange"
-                                class="bg-navy-950 border border-slate-700 text-slate-100 text-xs sm:text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium">
-                            <option v-for="c in availableCycles" :key="c.key" :value="c.key">{{ c.label }}</option>
-                        </select>
-                    </div>
+        <!-- Cutoff Period Selector Bar (Universal for all tabs) -->
+        <div class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                    <i class="fa-regular fa-calendar-check"></i>
                 </div>
-
-                <div class="flex flex-wrap items-center gap-3">
-                    <div class="flex items-center gap-1.5">
-                        <span class="text-xs text-slate-400">Branch:</span>
-                        <select v-model="selectedLoc"
-                                class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
-                            <option value="ALL">All Branches</option>
-                            <option v-for="loc in locations" :key="loc.branch" :value="loc.branch">{{ loc.branch }}</option>
-                        </select>
-                    </div>
-
-                    <div class="flex items-center gap-1.5">
-                        <span class="text-xs text-slate-400">Status:</span>
-                        <select v-model="statusFilter"
-                                class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
-                            <option value="ALL">All Staff</option>
-                            <option value="OVERTIME">Overtime (> 0h)</option>
-                            <option value="UNDERTIME">Undertime (&lt; 0h)</option>
-                        </select>
-                    </div>
-
-                    <div class="relative w-full sm:w-auto">
-                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
-                        <input v-model="searchQuery" type="text" placeholder="Filter staff or code..."
-                               class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:border-emerald-500 w-full sm:w-44" />
-                    </div>
+                <div>
+                    <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Attendance Cutoff Cycle (20th–19th)</label>
+                    <select v-model="selectedCycle" @change="onCycleChange"
+                            class="bg-navy-950 border border-slate-700 text-slate-100 text-xs sm:text-sm rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium">
+                        <option v-for="c in availableCycles" :key="c.key" :value="c.key">{{ c.label }}</option>
+                    </select>
                 </div>
             </div>
+
+            <div class="text-xs text-slate-400 flex items-center gap-2">
+                <span>Cycle: <strong class="text-slate-200">{{ reportData.cycle_label }}</strong></span>
+            </div>
+        </div>
+
+        <!-- ========================================================= -->
+        <!-- TAB 1: SELECTED STAFF DAILY BREAKDOWN (CARDS PER WEEK)    -->
+        <!-- ========================================================= -->
+        <div v-if="currentTab === 'daily'" class="space-y-6">
+
+            <div v-if="selectedStaffReport" class="space-y-6">
+
+                <!-- Selected Staff Header Card -->
+                <div class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="flex items-center gap-4">
+                        <img :src="selectedStaffReport.image_url" class="w-14 h-14 rounded-2xl bg-slate-800 object-cover border border-slate-700 shadow-md" />
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-base sm:text-lg font-bold text-white">{{ selectedStaffReport.name }}</h3>
+                                <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono font-bold border border-slate-700">
+                                    {{ selectedStaffReport.employee_code }}
+                                </span>
+                            </div>
+                            <div class="text-xs text-slate-400 mt-1 flex items-center gap-3 flex-wrap">
+                                <span><i class="fa-solid fa-briefcase text-slate-500 mr-1"></i>{{ selectedStaffReport.designation }}</span>
+                                <span><i class="fa-solid fa-building text-slate-500 mr-1"></i>{{ selectedStaffReport.allocated_to }}</span>
+                                <span v-if="selectedStaffReport.gmail"><i class="fa-solid fa-envelope text-slate-500 mr-1"></i>{{ selectedStaffReport.gmail }}</span>
+                                <button v-if="selectedStaffReport.whatsapp" @click="openWhatsApp(selectedStaffReport.whatsapp)" class="text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1">
+                                    <i class="fa-brands fa-whatsapp"></i> Chat
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Month KPI Summary Pills for this staff -->
+                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                        <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
+                            <div class="text-[10px] text-slate-400">Total Worked</div>
+                            <div class="text-base font-bold text-white">{{ selectedStaffReport.total_month_hours }} <span class="text-xs font-normal text-slate-400">/ {{ selectedStaffReport.total_target_hours }}h</span></div>
+                        </div>
+
+                        <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
+                            <div class="text-[10px] text-slate-400">Net Balance</div>
+                            <div class="text-base font-bold" :class="selectedStaffReport.net_monthly_balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                                {{ selectedStaffReport.net_monthly_balance >= 0 ? '+' : '' }}{{ selectedStaffReport.net_monthly_balance }}h
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
+                            <div class="text-[10px] text-slate-400">Overtime</div>
+                            <div class="text-base font-bold text-emerald-400">+{{ selectedStaffReport.total_overtime }}h</div>
+                        </div>
+
+                        <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
+                            <div class="text-[10px] text-slate-400">Undertime</div>
+                            <div class="text-base font-bold text-rose-400">-{{ selectedStaffReport.total_undertime }}h</div>
+                        </div>
+
+                        <div class="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
+                            <div class="text-[10px] text-slate-400">Present / WO</div>
+                            <div class="text-base font-bold text-slate-200">{{ selectedStaffReport.days_present_count }}d / {{ selectedStaffReport.days_wo_count }}d</div>
+                        </div>
+
+                        <div v-if="selectedStaffReport.missing_count > 0" class="bg-amber-950/40 px-3.5 py-2 rounded-xl border border-amber-800/80">
+                            <div class="text-[10px] text-amber-300 font-semibold">Missing Days</div>
+                            <div class="text-base font-bold text-amber-400">{{ selectedStaffReport.missing_count }} Unlogged</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Missing Dates Alert Banner -->
+                <div v-if="selectedStaffReport.missing_count > 0" class="bg-amber-950/30 border border-amber-800/60 rounded-2xl p-4 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-400 text-lg flex-shrink-0"></i>
+                        <span class="text-xs text-amber-200">
+                            <strong>{{ selectedStaffReport.missing_count }} working day(s)</strong> have no attendance entry logged for this period. Click <strong>Log Date</strong> on any missing day card below to record it.
+                        </span>
+                    </div>
+                </div>
+
+                <!-- CARDS PER WEEK (Monday to Sunday Calendar Weeks) -->
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                            <i class="fa-solid fa-layer-group text-emerald-400"></i>
+                            <span>Weekly Attendance Breakdown (Monday to Sunday)</span>
+                        </h3>
+                        <span class="text-xs text-slate-400">Standard WO: Thursday & Saturday</span>
+                    </div>
+
+                    <!-- Grid of Week Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div v-for="week in selectedStaffReport.weekly_breakdown" :key="week.week_number"
+                             class="bg-navy-900 rounded-2xl border border-slate-800 shadow-lg overflow-hidden flex flex-col justify-between hover:border-slate-700 transition">
+
+                            <!-- Week Header -->
+                            <div class="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
+                                <div>
+                                    <div class="font-bold text-xs sm:text-sm text-slate-100">{{ week.label }}</div>
+                                    <div class="text-[10px] text-slate-400 mt-0.5">
+                                        Target: <strong>{{ week.target_hours }}h</strong> ({{ week.days.length }} days)
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-xs font-bold font-mono" :class="week.worked_hours >= week.target_hours ? 'text-emerald-400' : 'text-amber-400'">
+                                        {{ week.worked_hours }}h
+                                    </div>
+                                    <span class="text-[9px] px-1.5 py-0.5 rounded font-bold"
+                                          :class="week.overtime_hours > 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : (week.undertime_hours > 0 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-slate-800 text-slate-400')">
+                                        {{ week.overtime_hours > 0 ? `+${week.overtime_hours}h OT` : (week.undertime_hours > 0 ? `-${week.undertime_hours}h UT` : 'Met') }}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Day-by-Day List inside this week -->
+                            <div class="p-3 divide-y divide-slate-800/60 text-xs">
+                                <div v-for="d in week.days" :key="d.date"
+                                     class="py-2 flex items-center justify-between gap-2">
+                                    <!-- Date & Day -->
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-8 text-center leading-tight">
+                                            <div class="text-[9px] uppercase font-bold text-slate-400">{{ d.day_name }}</div>
+                                            <div class="text-xs font-bold text-slate-200">{{ d.day_num }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-[11px] font-medium" :class="d.status === 'Missing' ? 'text-amber-300 font-bold' : (d.status === 'WO' ? 'text-slate-400' : 'text-slate-200')">
+                                                {{ d.status === 'Present' ? `${d.hours}h Worked` : d.status }}
+                                            </div>
+                                            <div v-if="d.checkIn && d.checkOut" class="text-[10px] text-slate-500 font-mono">
+                                                {{ d.checkIn }} – {{ d.checkOut }} ({{ d.location }})
+                                            </div>
+                                            <div v-else-if="d.isAutoWO" class="text-[10px] text-slate-500">
+                                                Scheduled Week Off
+                                            </div>
+                                            <div v-else-if="d.status === 'Missing'" class="text-[10px] text-amber-400/80">
+                                                No shift logged yet
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Status Badge / Quick Action -->
+                                    <div>
+                                        <button v-if="d.status === 'Missing'" @click="quickLogDate(d.date)"
+                                                class="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-navy-950 text-[10px] font-bold shadow transition flex items-center gap-1">
+                                            <i class="fa-solid fa-plus text-[9px]"></i> Log
+                                        </button>
+                                        <span v-else-if="d.status === 'WO'" class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono text-[10px] border border-slate-700">
+                                            WO
+                                        </span>
+                                        <span v-else-if="d.status === 'Present'" class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-mono font-bold text-[10px] border border-emerald-500/20">
+                                            {{ d.hours }}h
+                                        </span>
+                                        <span v-else class="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[10px] border border-blue-500/20">
+                                            {{ d.status }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Week Footer -->
+                            <div class="px-4 py-2 bg-slate-950/40 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                                <span>Week {{ week.week_number }} Total:</span>
+                                <strong class="text-slate-200">{{ week.worked_hours }} hrs</strong>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Empty Staff Selection State -->
+            <div v-else class="text-center py-12 bg-navy-900 rounded-3xl border border-slate-800">
+                <i class="fa-solid fa-user-clock text-4xl text-slate-600 mb-3"></i>
+                <h4 class="font-bold text-slate-300">No Staff Member Selected</h4>
+                <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    Search and select an employee above to inspect their daily attendance cards, missing dates, and weekly overtime/undertime balance.
+                </p>
+            </div>
+
+        </div>
+
+        <!-- ========================================================= -->
+        <!-- TAB 2: ORGANIZATION SUMMARY TABLE (ALL STAFF)             -->
+        <!-- ========================================================= -->
+        <div v-if="currentTab === 'summary'" class="space-y-6">
 
             <!-- KPI Summary Cards -->
             <div v-if="reportData && reportData.stats" class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
@@ -393,169 +577,165 @@
                     <div class="text-[11px] text-slate-400 mt-0.5">All branches</div>
                 </div>
 
-                <div class="bg-navy-900 p-4 rounded-2xl border border-emerald-900/40 shadow-md">
-                    <div class="text-xs text-emerald-400 font-semibold">Total Overtime</div>
-                    <div class="text-2xl font-bold text-emerald-400 mt-1">+{{ reportData.stats.aggregate_overtime }} <span class="text-xs font-normal text-emerald-500/80">hrs</span></div>
-                    <div class="text-[11px] text-emerald-500/70 mt-0.5">{{ reportData.stats.ot_count }} staff with OT</div>
+                <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md">
+                    <div class="text-xs text-slate-400">Total Overtime</div>
+                    <div class="text-2xl font-bold text-emerald-400 mt-1">+{{ reportData.stats.aggregate_overtime }} <span class="text-xs font-normal text-slate-400">hrs</span></div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">{{ reportData.stats.ot_count }} staff with OT</div>
                 </div>
 
-                <div class="bg-navy-900 p-4 rounded-2xl border border-rose-900/40 shadow-md">
-                    <div class="text-xs text-rose-400 font-semibold">Total Undertime</div>
-                    <div class="text-2xl font-bold text-rose-400 mt-1">-{{ reportData.stats.aggregate_undertime }} <span class="text-xs font-normal text-rose-500/80">hrs</span></div>
-                    <div class="text-[11px] text-rose-500/70 mt-0.5">{{ reportData.stats.ut_count }} staff below 48h</div>
+                <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md">
+                    <div class="text-xs text-slate-400">Total Undertime</div>
+                    <div class="text-2xl font-bold text-rose-400 mt-1">-{{ reportData.stats.aggregate_undertime }} <span class="text-xs font-normal text-slate-400">hrs</span></div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">{{ reportData.stats.ut_count }} staff below 48h</div>
                 </div>
 
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md col-span-2 lg:col-span-1">
-                    <div class="text-xs text-slate-400 font-semibold">Net Balance</div>
-                    <div class="text-2xl font-bold mt-1"
-                         :class="reportData.stats.net_aggregate_balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
-                        {{ reportData.stats.net_aggregate_balance > 0 ? '+' : '' }}{{ reportData.stats.net_aggregate_balance }} <span class="text-xs font-normal text-slate-400">hrs</span>
+                    <div class="text-xs text-slate-400">Net Balance</div>
+                    <div class="text-2xl font-bold mt-1" :class="reportData.stats.net_aggregate_balance >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                        {{ reportData.stats.net_aggregate_balance >= 0 ? '+' : '' }}{{ reportData.stats.net_aggregate_balance }} <span class="text-xs font-normal text-slate-400">hrs</span>
                     </div>
-                    <div class="text-[11px] text-slate-400 mt-0.5">Total Overtime - Undertime</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">Overtime – Undertime</div>
                 </div>
             </div>
 
-            <!-- Simple Clean Table -->
-            <div class="bg-navy-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden report-table-container">
-                <div class="p-4 border-b border-slate-800 flex items-center justify-between">
-                    <div>
-                        <h3 class="font-bold text-sm text-slate-100">Simple Staff Attendance Report</h3>
-                        <p class="text-xs text-slate-400">Target: 48h/wk | Friday & Sunday auto WO | Cutoff 20th–19th</p>
+            <!-- Filters Bar -->
+            <div class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-3 text-xs">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-slate-400">Branch:</span>
+                        <select v-model="selectedLoc"
+                                class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
+                            <option value="ALL">All Branches</option>
+                            <option v-for="loc in locations" :key="loc.branch" :value="loc.branch">{{ loc.branch }}</option>
+                        </select>
                     </div>
-                    <span class="text-xs text-slate-400 font-mono">{{ filteredStaffReports.length }} Staff</span>
+
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-slate-400">Filter Status:</span>
+                        <select v-model="statusFilter"
+                                class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
+                            <option value="ALL">All Staff</option>
+                            <option value="OVERTIME">Overtime (> 0h)</option>
+                            <option value="UNDERTIME">Undertime (&lt; 0h)</option>
+                        </select>
+                    </div>
                 </div>
 
+                <div class="relative w-full sm:w-auto">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
+                    <input v-model="searchQuery" type="text" placeholder="Filter staff or code..."
+                           class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:border-emerald-500 w-full sm:w-56" />
+                </div>
+            </div>
+
+            <!-- Full Roster Table -->
+            <div class="bg-navy-900 rounded-3xl border border-slate-800 shadow-xl overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-xs whitespace-nowrap">
-                        <thead class="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                        <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                             <tr>
-                                <th class="py-3 px-3">Sl.</th>
-                                <th class="py-3 px-2 text-center">Code</th>
+                                <th class="py-3 px-4">Sl</th>
+                                <th class="py-3 px-4">Code</th>
                                 <th class="py-3 px-4">Employee Name</th>
-                                <th class="py-3 px-3">Branch</th>
-                                <th class="py-3 px-3 text-center">W1 (48h)</th>
-                                <th class="py-3 px-3 text-center">W2 (48h)</th>
-                                <th class="py-3 px-3 text-center">W3 (48h)</th>
-                                <th class="py-3 px-3 text-center">W4 (48h)</th>
+                                <th class="py-3 px-4">Branch</th>
+                                <th class="py-3 px-3 text-center">W1</th>
+                                <th class="py-3 px-3 text-center">W2</th>
+                                <th class="py-3 px-3 text-center">W3</th>
+                                <th class="py-3 px-3 text-center">W4</th>
                                 <th class="py-3 px-3 text-center">W5 Rem</th>
-                                <th class="py-3 px-3 text-right">Total Hours</th>
-                                <th class="py-3 px-3 text-right text-emerald-400">Overtime</th>
-                                <th class="py-3 px-3 text-right text-rose-400">Undertime</th>
-                                <th class="py-3 px-3 text-right">Net Balance</th>
-                                <th class="py-3 px-2 text-center">WO</th>
-                                <th class="py-3 px-3 text-center">Action</th>
+                                <th class="py-3 px-4 text-center font-bold text-slate-200">Total Worked</th>
+                                <th class="py-3 px-4 text-center text-emerald-400">Overtime</th>
+                                <th class="py-3 px-4 text-center text-rose-400">Undertime</th>
+                                <th class="py-3 px-4 text-center font-bold">Net Balance</th>
+                                <th class="py-3 px-4 text-center">Days</th>
+                                <th class="py-3 px-4 text-center">Action</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-800/60 font-mono text-slate-300">
-                            <tr v-for="s in filteredStaffReports" :key="s.employee_code" class="hover:bg-slate-800/40 transition">
-                                <td class="py-3 px-3 font-sans text-slate-500">{{ s.sl_no }}</td>
-                                <td class="py-3 px-2 text-center font-bold text-emerald-400">{{ s.employee_code }}</td>
-
-                                <td class="py-3 px-4 font-sans">
+                        <tbody class="divide-y divide-slate-800/60 font-medium">
+                            <tr v-for="staff in filteredStaffReports" :key="staff.employee_code"
+                                class="hover:bg-slate-800/40 transition">
+                                <td class="py-3 px-4 text-slate-400">{{ staff.sl_no }}</td>
+                                <td class="py-3 px-4">
+                                    <span class="px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono font-bold text-[11px] border border-slate-700">
+                                        {{ staff.employee_code }}
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4">
                                     <div class="flex items-center gap-2">
-                                        <span class="font-semibold text-slate-100">{{ s.name }}</span>
-                                        <span v-if="s.whatsapp" @click="openWhatsApp(s.whatsapp)" class="cursor-pointer text-emerald-400 text-xs">
-                                            <i class="fa-brands fa-whatsapp"></i>
-                                        </span>
-                                    </div>
-                                    <div class="text-[10px] text-slate-400">{{ s.designation }}</div>
-                                </td>
-
-                                <td class="py-3 px-3 font-sans">
-                                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                                        {{ s.allocated_to }}
-                                    </span>
-                                </td>
-
-                                <td v-for="w in s.weekly_breakdown" :key="w.week_number" class="py-3 px-3 text-center">
-                                    <div class="inline-flex flex-col items-center">
-                                        <span class="font-bold" :class="w.worked_hours >= w.target_hours ? 'text-emerald-400' : 'text-slate-300'">
-                                            {{ w.worked_hours }}h
-                                        </span>
-                                        <span v-if="w.overtime_hours > 0" class="text-[9px] text-emerald-400 font-bold">+{{ w.overtime_hours }} OT</span>
-                                        <span v-else-if="w.undertime_hours > 0" class="text-[9px] text-rose-400 font-bold">-{{ w.undertime_hours }} UT</span>
-                                        <span v-else class="text-[9px] text-slate-500">met</span>
+                                        <img :src="staff.image_url" class="w-7 h-7 rounded-full bg-slate-800 object-cover border border-slate-700" />
+                                        <div>
+                                            <div class="font-bold text-slate-200">{{ staff.name }}</div>
+                                            <div class="text-[10px] text-slate-400">{{ staff.designation }}</div>
+                                        </div>
                                     </div>
                                 </td>
-
-                                <td class="py-3 px-3 text-right font-bold text-slate-100">
-                                    {{ s.total_month_hours }} <span class="text-[10px] text-slate-500">/ {{ s.total_target_hours }}h</span>
-                                </td>
-
-                                <td class="py-3 px-3 text-right font-bold text-emerald-400">
-                                    {{ s.total_overtime > 0 ? '+' + s.total_overtime + 'h' : '-' }}
-                                </td>
-
-                                <td class="py-3 px-3 text-right font-bold text-rose-400">
-                                    {{ s.total_undertime > 0 ? '-' + s.total_undertime + 'h' : '-' }}
-                                </td>
-
-                                <td class="py-3 px-3 text-right font-bold">
-                                    <span :class="s.net_monthly_balance > 0 ? 'text-emerald-400' : (s.net_monthly_balance < 0 ? 'text-rose-400' : 'text-slate-400')">
-                                        {{ s.net_monthly_balance > 0 ? '+' : '' }}{{ s.net_monthly_balance }}h
+                                <td class="py-3 px-4">
+                                    <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-semibold">
+                                        {{ staff.allocated_to }}
                                     </span>
                                 </td>
-
-                                <td class="py-3 px-2 text-center text-slate-400 font-sans">
-                                    {{ s.days_wo_count }}
+                                <td class="py-3 px-3 text-center font-mono">{{ staff.weekly_breakdown[0] ? staff.weekly_breakdown[0].worked_hours : '-' }}</td>
+                                <td class="py-3 px-3 text-center font-mono">{{ staff.weekly_breakdown[1] ? staff.weekly_breakdown[1].worked_hours : '-' }}</td>
+                                <td class="py-3 px-3 text-center font-mono">{{ staff.weekly_breakdown[2] ? staff.weekly_breakdown[2].worked_hours : '-' }}</td>
+                                <td class="py-3 px-3 text-center font-mono">{{ staff.weekly_breakdown[3] ? staff.weekly_breakdown[3].worked_hours : '-' }}</td>
+                                <td class="py-3 px-3 text-center font-mono">{{ staff.weekly_breakdown[4] ? staff.weekly_breakdown[4].worked_hours : '-' }}</td>
+                                <td class="py-3 px-4 text-center font-bold text-slate-100 font-mono">
+                                    {{ staff.total_month_hours }} <span class="text-[10px] text-slate-400 font-normal">/ {{ staff.total_target_hours }}h</span>
                                 </td>
-
-                                <td class="py-3 px-3 text-center font-sans">
-                                    <button @click="selectStaffForEntry(s); window.scrollTo({top: 0, behavior: 'smooth'})"
-                                            class="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 font-semibold text-xs transition">
-                                        + Log
+                                <td class="py-3 px-4 text-center text-emerald-400 font-mono font-bold">
+                                    {{ staff.total_overtime > 0 ? `+${staff.total_overtime}h` : '0.0h' }}
+                                </td>
+                                <td class="py-3 px-4 text-center text-rose-400 font-mono font-bold">
+                                    {{ staff.total_undertime > 0 ? `-${staff.total_undertime}h` : '0.0h' }}
+                                </td>
+                                <td class="py-3 px-4 text-center font-bold font-mono">
+                                    <span class="px-2.5 py-1 rounded-full text-xs"
+                                          :class="staff.net_monthly_balance > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : (staff.net_monthly_balance < 0 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' : 'bg-slate-800 text-slate-400')">
+                                        {{ staff.net_monthly_balance > 0 ? '+' : '' }}{{ staff.net_monthly_balance }}h
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4 text-center text-slate-400 text-[11px]">
+                                    {{ staff.days_present_count }}d Work • {{ staff.days_wo_count }}d WO
+                                </td>
+                                <td class="py-3 px-4 text-center">
+                                    <button @click="selectStaffForEntry(staff); currentTab = 'daily'"
+                                            class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition">
+                                        View Breakdown
                                     </button>
-                                </td>
-                            </tr>
-
-                            <tr v-if="filteredStaffReports.length === 0">
-                                <td colspan="15" class="py-8 text-center text-slate-500 font-sans">
-                                    No attendance records found. Connect Google Sheet to load your staff and branches.
                                 </td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
+
         </div>
 
         <!-- ========================================================= -->
-        <!-- TAB 2: STAFF ROSTER                                       -->
+        <!-- TAB 3: STAFF DIRECTORY                                    -->
         <!-- ========================================================= -->
-        <div v-if="currentTab === 'staff'" class="space-y-6">
-            <div class="bg-navy-900 rounded-2xl p-5 border border-slate-800 shadow-xl flex items-center justify-between">
-                <div>
-                    <h3 class="font-bold text-base text-slate-100">Staff Roster ({{ staffList.length }} Staff Members)</h3>
-                    <p class="text-xs text-slate-400 mt-0.5">Loaded dynamically from Google Sheet 'Staff_data'.</p>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div v-if="currentTab === 'roster'" class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div v-for="s in staffList" :key="s.employee_code"
-                     class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-lg flex flex-col justify-between hover:border-slate-700 transition">
-                    <div>
-                        <div class="flex items-start justify-between mb-3">
-                            <img :src="s.image_url" :alt="s.name" class="w-12 h-12 rounded-full bg-slate-800 border-2 border-slate-700 object-cover" />
-                            <span class="text-xs px-2 py-0.5 rounded font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
-                                {{ s.employee_code }}
-                            </span>
+                     class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex items-center justify-between gap-3 hover:border-slate-700 transition">
+                    <div class="flex items-center gap-3">
+                        <img :src="s.image_url" class="w-12 h-12 rounded-xl bg-slate-800 object-cover border border-slate-700" />
+                        <div>
+                            <div class="font-bold text-sm text-slate-100">{{ s.name }}</div>
+                            <div class="text-xs text-slate-400">{{ s.designation }}</div>
+                            <div class="text-[10px] text-emerald-400 font-mono mt-0.5">{{ s.employee_code }} • {{ s.allocated_to }}</div>
+                            <div v-if="s.gmail" class="text-[10px] text-slate-500 truncate max-w-[160px]">{{ s.gmail }}</div>
                         </div>
-                        <h4 class="font-bold text-sm text-slate-100 line-clamp-1">{{ s.name }}</h4>
-                        <p class="text-xs text-slate-400 mt-0.5">{{ s.designation }}</p>
-                        <p class="text-xs text-slate-500 mt-0.5">Branch: <strong class="text-slate-300">{{ s.allocated_to }}</strong></p>
                     </div>
 
-                    <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+                    <div class="flex flex-col gap-1.5 items-end">
                         <button v-if="s.whatsapp" @click="openWhatsApp(s.whatsapp)"
-                                class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600/15 text-emerald-400 hover:bg-emerald-600/25 border border-emerald-500/20 transition font-medium">
-                            <i class="fa-brands fa-whatsapp text-sm"></i>
-                            <span>WhatsApp</span>
+                                class="px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 text-xs font-semibold flex items-center gap-1 transition">
+                            <i class="fa-brands fa-whatsapp"></i> Chat
                         </button>
-                        <span v-else class="text-slate-500 text-[11px]">No WhatsApp</span>
-
-                        <button @click="selectStaffForEntry(s); currentTab = 'reports'; window.scrollTo({top: 0, behavior: 'smooth'})"
-                                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition font-semibold">
-                            Log Shift
+                        <button @click="selectStaffForEntry(s); currentTab = 'daily'"
+                                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition">
+                            Select
                         </button>
                     </div>
                 </div>
@@ -564,49 +744,37 @@
 
     </main>
 
-    <!-- ========================================================= -->
-    <!-- MODAL: GOOGLE SHEETS CONNECTION & SETUP                   -->
-    <!-- ========================================================= -->
-    <div v-if="connectModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-        <div class="bg-navy-900 border border-slate-800 rounded-3xl w-full max-w-xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 class="font-bold text-sm sm:text-base text-slate-100 flex items-center gap-2">
+    <!-- Google Sheet Connection & Setup Modal -->
+    <div v-if="connectModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 relative">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 class="font-bold text-base text-white flex items-center gap-2">
                     <i class="fa-brands fa-google-drive text-emerald-400"></i>
-                    <span>Connect Google Sheet as Secure Backend</span>
+                    <span>Connect Google Sheets Backend</span>
                 </h3>
                 <button @click="connectModal = false" class="text-slate-400 hover:text-slate-200">
                     <i class="fa-solid fa-xmark text-lg"></i>
                 </button>
             </div>
 
-            <div class="space-y-4 text-xs text-slate-300">
-                <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                    <div class="font-bold text-emerald-400 flex items-center gap-1.5">
-                        <i class="fa-solid fa-shield-halved"></i>
-                        <span>Your Data is 100% Private</span>
-                    </div>
-                    <p class="text-[11px] text-slate-400 leading-relaxed">
-                        Your Google Sheet stays completely private to you. The Google Apps Script acts as your private API bridge. No staff names, phone numbers, or attendance rows are stored in GitHub.
-                    </p>
-                </div>
-
+            <div class="space-y-4 text-xs">
                 <div>
                     <label class="block font-semibold text-slate-200 mb-1">Google Apps Script Web App URL</label>
                     <input v-model="googleSheetWebAppUrl"
                            type="url"
                            placeholder="https://script.google.com/macros/s/AKfycb.../exec"
                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none" />
-                    <p class="text-[11px] text-slate-500 mt-1">
+                    <p class="text-[11px] text-slate-400 mt-1">
                         Tip: You can also paste this URL in <code>static/js/config.js</code> so every user is connected automatically!
                     </p>
                 </div>
 
                 <div class="space-y-2">
-                    <div class="font-semibold text-slate-200">60-Second Deployment:</div>
+                    <div class="font-semibold text-slate-200">Quick Deployment Guide:</div>
                     <ol class="list-decimal list-inside space-y-1.5 text-slate-400 text-[11px] leading-relaxed">
                         <li>Open your Google Sheet: <a href="https://docs.google.com/spreadsheets/d/1fKcoTVzIqvA4fsq75oOxXLp2tqQ-e74UZNVhPWFp3-Y/edit?usp=sharing" target="_blank" class="text-emerald-400 underline font-medium">Open Google Sheet</a></li>
-                        <li>Click <strong>Extensions &gt; Apps Script</strong> in top menu.</li>
-                        <li>Copy the script from repo file <code class="text-emerald-400 font-bold">google_apps_script.js</code> and paste it there.</li>
+                        <li>Click <strong>Extensions &gt; Apps Script</strong> in the top menu.</li>
+                        <li>Copy the script from <code>google_apps_script.js</code> and paste it there.</li>
                         <li>Click <strong>Deploy &gt; New deployment</strong> &gt; Select <strong>Web app</strong>.</li>
                         <li>Set 'Execute as': <strong>Me</strong>, and 'Who has access': <strong>Anyone</strong>.</li>
                         <li>Click <strong>Deploy</strong>, copy the generated Web App URL, and paste it above!</li>

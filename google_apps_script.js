@@ -1,6 +1,6 @@
 /**
  * ======================================================================
- * STAFF ATTENDANCE SYSTEM — GOOGLE APPS SCRIPT WEB APP BACKEND
+ * STAFF ATTENDANCE SYSTEM — GOOGLE APPS SCRIPT WEB APP BACKEND (v3.0)
  * ======================================================================
  * 
  * SPREADSHEET URL:
@@ -12,10 +12,12 @@
  * 3. 'Attendance_data' -> Timestamp | Date | Employee Code | Employee Name | Branch | Status | Start Time | End Time | Total Hours | Notes
  * 
  * ----------------------------------------------------------------------
- * 1-YEAR ROLLING RETENTION:
- * Automatically keeps the past 365 days of attendance data.
- * Old records older than 1 year are automatically deleted to keep the sheet fast and clean.
- * 
+ * WEEK & SHIFT RULES:
+ * - A week runs Monday to Sunday (ISO calendar week).
+ * - Weekly target: 48 Hours.
+ * - Standard Week Offs (WO): THURSDAY and SATURDAY.
+ * - Cutoff cycle: 20th of the month to 19th of the next month.
+ * - 1-Year Rolling Retention: Records older than 365 days are pruned.
  * ----------------------------------------------------------------------
  * DEPLOYMENT INSTRUCTIONS:
  * 1. Open your Google Sheet: https://docs.google.com/spreadsheets/d/1fKcoTVzIqvA4fsq75oOxXLp2tqQ-e74UZNVhPWFp3-Y/edit?usp=sharing
@@ -23,10 +25,10 @@
  * 3. Delete any code there, paste this entire file, and click Save (disk icon).
  * 4. Click 'Deploy' (top right) > 'New deployment'.
  * 5. Click the gear icon next to 'Select type' and choose 'Web app'.
- * 6. Set Description: "Attendance API v2"
- *    Set 'Execute as': "Me"
- *    Set 'Who has access': "Anyone"
- * 7. Click 'Deploy', authorize permissions if prompted, and copy the Web App URL (https://script.google.com/macros/s/.../exec).
+ * 6. Set Description: "Attendance API v3"
+ *    Set 'Execute as': "Me" (your Google account)
+ *    Set 'Who has access': "Anyone"  <-- CRITICAL for GitHub Pages access!
+ * 7. Click 'Deploy', authorize permissions if Google prompts you, and copy the Web App URL.
  * 8. Open 'static/js/config.js' in your repository and paste that URL:
  *    window.APP_CONFIG.GOOGLE_SCRIPT_URL = "YOUR_COPIED_URL";
  * ======================================================================
@@ -55,15 +57,20 @@ function formatDateSafe(val, tz) {
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
+  var params = (e && e.parameter) ? e.parameter : {};
+  var action = params.action || "get_all";
 
-  // Support GET-based attendance logging if POST is blocked by corporate proxies
-  if (e && e.parameter && e.parameter.action === "log_attendance" && e.parameter.payload) {
+  // Support attendance logging via GET to bypass restrictive corporate firewalls and 302 POST body loss
+  if (action === "log_attendance") {
     try {
-      var payload = JSON.parse(decodeURIComponent(e.parameter.payload));
+      var payloadStr = params.payload || params.data;
+      if (!payloadStr) {
+        return createJsonResponse({ status: "error", message: "Missing payload parameter" });
+      }
+      var payload = (typeof payloadStr === "string") ? JSON.parse(decodeURIComponent(payloadStr)) : payloadStr;
       return handleLogAttendance(ss, payload, tz);
     } catch (err) {
-      return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return createJsonResponse({ status: "error", message: "GET log error: " + err.toString() });
     }
   }
 
@@ -149,7 +156,7 @@ function doGet(e) {
       }
     }
 
-    var result = {
+    return createJsonResponse({
       status: "success",
       sheet_name: ss.getName(),
       staff_count: staffList.length,
@@ -158,16 +165,13 @@ function doGet(e) {
       locations: locList,
       attendance_count: logsList.length,
       attendance: logsList
-    };
-
-    return ContentService.createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
+    });
 
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({
+    return createJsonResponse({
       status: "error",
       message: err.toString()
-    })).setMimeType(ContentService.MimeType.JSON);
+    });
   }
 }
 
@@ -176,23 +180,39 @@ function doPost(e) {
   var tz = Session.getScriptTimeZone();
 
   try {
-    var contents = e.postData.contents;
-    var payload = JSON.parse(contents);
+    var payload = null;
+    if (e && e.postData && e.postData.contents) {
+      try {
+        payload = JSON.parse(e.postData.contents);
+      } catch (parseErr) {
+        payload = e.parameter;
+      }
+    } else if (e && e.parameter) {
+      var pStr = e.parameter.payload || e.parameter.data;
+      if (pStr) {
+        payload = JSON.parse(decodeURIComponent(pStr));
+      } else {
+        payload = e.parameter;
+      }
+    }
+
+    if (!payload) {
+      return createJsonResponse({ status: "error", message: "No payload provided in POST" });
+    }
+
     var action = payload.action || "log_attendance";
 
     if (action === "log_attendance") {
       return handleLogAttendance(ss, payload, tz);
     }
 
-    return ContentService.createTextOutput(JSON.stringify({
-      status: "unsupported_action"
-    })).setMimeType(ContentService.MimeType.JSON);
+    return createJsonResponse({ status: "unsupported_action" });
 
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({
+    return createJsonResponse({
       status: "error",
       message: err.toString()
-    })).setMimeType(ContentService.MimeType.JSON);
+    });
   }
 }
 
@@ -230,10 +250,10 @@ function handleLogAttendance(ss, payload, tz) {
   var nowTimestamp = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm:ss");
 
   if (existingRowIndex > 0 && !allowUpdate) {
-    return ContentService.createTextOutput(JSON.stringify({
+    return createJsonResponse({
       status: "duplicate",
       message: "Attendance entry already exists for " + empName + " (" + empCode + ") on " + dateStr
-    })).setMimeType(ContentService.MimeType.JSON);
+    });
   }
 
   if (existingRowIndex > 0 && allowUpdate) {
@@ -251,11 +271,11 @@ function handleLogAttendance(ss, payload, tz) {
       payload.notes || ""
     ]]);
 
-    return ContentService.createTextOutput(JSON.stringify({
+    return createJsonResponse({
       status: "success",
       action: "updated",
       message: "Updated attendance for " + empName + " on " + dateStr
-    })).setMimeType(ContentService.MimeType.JSON);
+    });
   } else {
     // Append new row
     targetSheet.appendRow([
@@ -274,11 +294,11 @@ function handleLogAttendance(ss, payload, tz) {
     // Apply 1-Year Retention Policy (prunes records older than 365 days)
     pruneOldAttendanceRecords(targetSheet, tz);
 
-    return ContentService.createTextOutput(JSON.stringify({
+    return createJsonResponse({
       status: "success",
       action: "added",
       message: "Added attendance for " + empName + " on " + dateStr
-    })).setMimeType(ContentService.MimeType.JSON);
+    });
   }
 }
 
@@ -316,6 +336,11 @@ function pruneOldAttendanceRecords(sheet, tz) {
   } catch (e) {
     // Non-fatal error during pruning
   }
+}
+
+function createJsonResponse(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
