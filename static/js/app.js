@@ -329,13 +329,34 @@ const app = createApp({
             let country = (l.country || '').toString().trim().toUpperCase();
             let emr = (l.emr || '').toString().trim();
             let location = (l.location || '').toString().trim();
+            const up = (l.updated_by_user || '').toString().trim();
 
-            // Detect shifted columns from older Apps Script (Country inserted at col 1, pushing EMR to location and location to updated_by_user):
             const emrUp = emr.toUpperCase();
-            if (emrUp === 'UAE' || emrUp === 'OMAN' || emrUp === 'KSA' || emrUp === 'QATAR' || emrUp === 'BAHRAIN') {
-                country = emrUp;
-                emr = (l.location || '').toString().trim();
-                location = (l.updated_by_user || '').toString().trim() || emr;
+            // Detect shifted columns from older Apps Script (Country inserted at col 1, pushing EMR to location and location to updated_by_user):
+            if (emrUp === 'OM' || emrUp === 'OMAN') {
+                country = 'OMAN';
+                emr = (location && location !== 'OM') ? location : 'OM';
+                location = up || 'Oman';
+            } else if (emrUp === 'UAE') {
+                country = 'UAE';
+                emr = location;
+                location = up || location;
+            } else if (emrUp === 'KSA' || emrUp === 'SA') {
+                country = 'KSA';
+                emr = location;
+                location = up || location;
+            } else if (country === 'OM' || country === 'OMAN') {
+                country = 'OMAN';
+            } else if (country === 'UAE') {
+                country = 'UAE';
+            } else if (!country) {
+                // Heuristic check if branch or location mentions Oman locations
+                const bLower = (branch + ' ' + location + ' ' + emr).toLowerCase();
+                if (bLower.includes('oman') || bLower.includes('barka') || bLower.includes('salalah') || bLower.includes('amirat') || bLower.includes('sohar') || bLower.includes('nizwa') || bLower.includes('muscat')) {
+                    country = 'OMAN';
+                } else {
+                    country = 'UAE';
+                }
             }
 
             return {
@@ -441,6 +462,10 @@ const app = createApp({
             }
             if (entryForm.value.date > todayStr) {
                 showToast("Future dates are not allowed. Please select today or a past date.", "error");
+                return;
+            }
+            if (!entryForm.value.location) {
+                showToast("Please select a Branch Location", "error");
                 return;
             }
 

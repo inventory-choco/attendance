@@ -178,6 +178,7 @@ function doGet(e) {
           var uName = (colUName !== -1 && urow[colUName]) ? urow[colUName].toString().trim() : "";
           var uGmail = (colUGmail !== -1 && urow[colUGmail]) ? urow[colUGmail].toString().trim().toLowerCase() : "";
           var uCountry = (colUCountry !== -1 && urow[colUCountry]) ? urow[colUCountry].toString().trim().toUpperCase() : "UAE";
+          if (uCountry === "OM") uCountry = "OMAN";
           var uRole = (colURole !== -1 && urow[colURole]) ? urow[colURole].toString().trim() : "Data_Entry";
           var uUpdatedBy = (colUUpUser !== -1 && urow[colUUpUser]) ? urow[colUUpUser].toString().trim() : "";
           var uUpdatedDate = (colUUpDate !== -1 && urow[colUUpDate]) ? urow[colUUpDate].toString().trim() : "";
@@ -270,7 +271,7 @@ function doGet(e) {
 
     // 5. Locations
     // Columns: Branch | Country | Emr | Location | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
-    var locSheet = ss.getSheetByName("Locations") || ss.getSheetByName("locations");
+    var locSheet = ss.getSheetByName("Locations") || ss.getSheetByName("Location") || ss.getSheetByName("locations") || ss.getSheetByName("location");
     var locList = [];
     if (locSheet) {
       var locData = locSheet.getDataRange().getValues();
@@ -306,6 +307,7 @@ function doGet(e) {
           var bName = (colLBranch !== -1 && lrow[colLBranch]) ? lrow[colLBranch].toString().trim() : "";
           if (!bName) continue;
           var bCountry = (colLCountry !== -1 && lrow[colLCountry]) ? lrow[colLCountry].toString().trim().toUpperCase() : "UAE";
+          if (bCountry === "OM") bCountry = "OMAN";
           var bEmr = (colLEmr !== -1 && lrow[colLEmr]) ? lrow[colLEmr].toString().trim() : "";
           var bLoc = (colLLoc !== -1 && lrow[colLLoc]) ? lrow[colLLoc].toString().trim() : "";
           var bUpUser = (colLUpUser !== -1 && lrow[colLUpUser]) ? lrow[colLUpUser].toString().trim() : "";
@@ -609,7 +611,7 @@ function handleAdminCrud(ss, payload, tz) {
       headers = ["Employee Code", "Employee Name", "Allocated to Employee Code", "Allocated to Employee Name", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Schedule") {
       headers = ["Branch", "Location", "Visit Date", "Visit Time", "Allocated to Staff", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
-    } else if (sheetName === "Locations") {
+    } else if (sheetName === "Locations" || sheetName === "Location") {
       headers = ["Branch", "Country", "Emr", "Location", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Roles") {
       headers = ["Role", "Attendance Entry Form", "View Reports & Breakdowns", "Download Excel Reports", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
@@ -683,7 +685,7 @@ function handleAdminCrud(ss, payload, tz) {
       updatedBy,
       auditDate
     ];
-  } else if (sheetName === "Locations") {
+  } else if (sheetName === "Locations" || sheetName === "Location") {
     rowValues = [
       data.branch || "",
       (data.country || "UAE").toUpperCase().trim(),
