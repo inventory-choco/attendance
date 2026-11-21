@@ -85,8 +85,8 @@
                 <div v-else class="flex flex-col items-center gap-4">
                     <div id="google-signin-btn-login" class="w-full flex justify-center"></div>
                     <p class="text-[11px] text-slate-500 text-center leading-relaxed">
-                        Your email must be registered in the Staff Directory.<br>
-                        Contact your administrator if you need access.
+                        Your Gmail must be registered in the Users_Data sheet.<br>
+                        Contact your administrator to grant access.
                     </p>
                 </div>
 
@@ -140,8 +140,9 @@
                         <i class="fa-solid fa-arrows-rotate" :class="{ 'spinning': loading }"></i>
                     </button>
 
-                    <!-- Export Excel Button -->
-                    <button @click="exportExcel"
+                    <!-- Export Excel Button (Shown for Admin & Report_Only; Hidden for Data_Entry) -->
+                    <button v-if="canExportReports"
+                            @click="exportExcel"
                             :disabled="staffList.length === 0"
                             title="Download Formatted Excel with Summary & Daily Attendance"
                             class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5">
@@ -149,12 +150,18 @@
                         <span class="hidden sm:inline">Export Excel</span>
                     </button>
 
-                    <!-- Google User Profile & Sign Out -->
+                    <!-- Google User Profile & Role Badge & Sign Out -->
                     <div class="flex items-center gap-2 pl-2 border-l border-slate-800">
                         <img v-if="currentUser.picture" :src="currentUser.picture" class="w-8 h-8 rounded-full border border-emerald-500" />
                         <div class="hidden md:block text-left text-[11px] leading-tight">
-                            <div class="font-bold text-slate-200">{{ currentUser.name }}</div>
-                            <div class="text-slate-400 truncate max-w-[120px]">{{ currentUser.email }}</div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-bold text-slate-200">{{ currentUser.name }}</span>
+                                <span class="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
+                                      :class="userRole === 'Admin' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : (userRole === 'Data_Entry' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' : 'bg-purple-500/20 text-purple-300 border border-purple-500/30')">
+                                    {{ userRole === 'Data_Entry' ? 'Data Entry' : (userRole === 'Report_Only' ? 'Report Only' : 'Admin') }}
+                                </span>
+                            </div>
+                            <div class="text-slate-400 truncate max-w-[140px]">{{ currentUser.email }}</div>
                         </div>
                         <button @click="signOut" title="Sign Out" class="text-slate-400 hover:text-rose-400 text-xs p-1">
                             <i class="fa-solid fa-right-from-bracket"></i>
@@ -204,7 +211,8 @@
         <!-- ========================================================= -->
         <!-- SECTION 1: LOG STAFF ATTENDANCE (SMART ENTRY FORM)        -->
         <!-- ========================================================= -->
-        <div id="entry-form-section" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
+        <!-- Rendered for Admin & Data_Entry roles -->
+        <div v-if="canDataEntry" id="entry-form-section" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-5">
                 <div>
                     <h2 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
@@ -418,6 +426,30 @@
             </div>
         </div>
 
+        <!-- Read-Only Notice Banner (Shown for Report_Only Role) -->
+        <div v-else class="bg-navy-900 border border-purple-900/60 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center text-xl flex-shrink-0 border border-purple-500/20">
+                    <i class="fa-solid fa-chart-pie"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h3 class="font-bold text-sm sm:text-base text-purple-200">Report-Only Portal</h3>
+                        <span class="text-[10px] px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">Read-Only Mode</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">
+                        You are signed in with Report-Only access. You can review attendance breakdowns, inspect organization summaries, and export Excel reports. Data entry is restricted.
+                    </p>
+                </div>
+            </div>
+            <button v-if="canExportReports" @click="exportExcel"
+                    :disabled="staffList.length === 0"
+                    class="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-lg shadow-purple-600/20 transition flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-file-arrow-down"></i>
+                <span>Download Excel Report</span>
+            </button>
+        </div>
+
         <!-- Cutoff Period Selector Bar -->
         <div class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="flex items-center gap-3">
@@ -565,10 +597,13 @@
                                         </div>
                                     </div>
                                     <div>
-                                        <button v-if="d.status === 'Missing'" @click="quickLogDate(d.date)"
+                                        <button v-if="d.status === 'Missing' && canDataEntry" @click="quickLogDate(d.date)"
                                                 class="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-navy-950 text-[10px] font-bold shadow transition flex items-center gap-1">
                                             <i class="fa-solid fa-plus text-[9px]"></i> Log
                                         </button>
+                                        <span v-else-if="d.status === 'Missing'" class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-mono text-[10px] border border-amber-500/20">
+                                            Missing
+                                        </span>
                                         <span v-else-if="d.status === 'WO'" class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono text-[10px] border border-slate-700">
                                             WO
                                         </span>

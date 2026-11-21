@@ -7,9 +7,10 @@
  * https://docs.google.com/spreadsheets/d/1fKcoTVzIqvA4fsq75oOxXLp2tqQ-e74UZNVhPWFp3-Y/edit?usp=sharing
  * 
  * SHEETS USED:
- * 1. 'Staff_data'      -> Sl. No. | Employee Code | Employee Name | Designation | Allocated to | Whatsapp | IMAGE | Gmail
- * 2. 'Locations'       -> Branch | Emr | Location
- * 3. 'Attendance_data' -> Timestamp | Date | Employee Code | Employee Name | Branch | Status | Start Time | End Time | Total Hours | Notes
+ * 1. 'Staff_data'      -> Sl. No. | Employee Code | Employee Name | Designation | Allocated to | Whatsapp | IMAGE
+ * 2. 'Users_Data'      -> UserName | Gmail | Role (Admin, Data_Entry, Report_Only)
+ * 3. 'Locations'       -> Branch | Emr | Location
+ * 4. 'Attendance_data' -> Timestamp | Date | Employee Code | Employee Name | Branch | Status | Start Time | End Time | Total Hours | Notes
  * 
  * ----------------------------------------------------------------------
  * WEEK & SHIFT RULES:
@@ -66,7 +67,7 @@ function doGet(e) {
 
   try {
     // 1. Fetch Staff Data from 'Staff_data'
-    // Header: Sl. No.(0) | Employee Code(1) | Employee Name(2) | Designation(3) | Allocated to(4) | Whatsapp(5) | IMAGE(6) | Gmail(7)
+    // Header: Sl. No.(0) | Employee Code(1) | Employee Name(2) | Designation(3) | Allocated to(4) | Whatsapp(5) | IMAGE(6)
     var staffSheet = ss.getSheetByName("Staff_data") || ss.getSheets()[0];
     var staffData = staffSheet.getDataRange().getValues();
     var staffList = [];
@@ -82,9 +83,8 @@ function doGet(e) {
       var allocatedTo = row[4] ? row[4].toString().trim().toUpperCase() : "HEAD OFFICE";
       var whatsapp = row[5] ? row[5].toString().trim() : "";
       var imageUrl = row[6] ? row[6].toString().trim() : "";
-      var gmail = row[7] ? row[7].toString().trim().toLowerCase() : "";
 
-      if (!imageUrl) {
+      if (!imageUrl || imageUrl === "CellImage") {
         imageUrl = "https://api.dicebear.com/7.x/initials/svg?seed=" + encodeURIComponent(empName) + "&backgroundColor=0284c7,0d9488,4f46e5&textColor=ffffff";
       }
 
@@ -96,12 +96,65 @@ function doGet(e) {
         designation: designation,
         allocated_to: allocatedTo,
         whatsapp: whatsapp,
-        image_url: imageUrl,
-        gmail: gmail
+        image_url: imageUrl
       });
     }
 
-    // 2. Fetch Locations from 'Locations' sheet under the header 'Branch'
+    // 2. Fetch User Permissions from 'Users_Data'
+    // Header: UserName | Gmail | Role (Admin, Data_Entry, Report_Only)
+    var usersSheet = ss.getSheetByName("Users_Data") || 
+                     ss.getSheetByName("users_data") || 
+                     ss.getSheetByName("Users Data") || 
+                     ss.getSheetByName("User_Data");
+    var usersList = [];
+    if (usersSheet) {
+      var usersData = usersSheet.getDataRange().getValues();
+      if (usersData.length > 0) {
+        var uHeaders = usersData[0];
+        var uNameCol = 0;
+        var uGmailCol = 1;
+        var uRoleCol = 2;
+
+        for (var uc = 0; uc < uHeaders.length; uc++) {
+          var uh = uHeaders[uc] ? uHeaders[uc].toString().trim().toLowerCase() : "";
+          if (uh === "username" || uh === "user name" || uh === "name" || uh === "employee name") {
+            uNameCol = uc;
+          } else if (uh === "gmail" || uh === "email" || uh === "mail") {
+            uGmailCol = uc;
+          } else if (uh === "role" || uh === "user role" || uh === "permission" || uh === "roles") {
+            uRoleCol = uc;
+          }
+        }
+
+        for (var u = 1; u < usersData.length; u++) {
+          var urow = usersData[u];
+          var uName = (uNameCol < urow.length && urow[uNameCol]) ? urow[uNameCol].toString().trim() : "";
+          var uGmail = (uGmailCol < urow.length && urow[uGmailCol]) ? urow[uGmailCol].toString().trim().toLowerCase() : "";
+          var uRole = (uRoleCol < urow.length && urow[uRoleCol]) ? urow[uRoleCol].toString().trim() : "Data_Entry";
+
+          if (!uName && !uGmail) continue;
+
+          var rLower = uRole.toLowerCase().replace(/[\s\-_]/g, "");
+          var roleNorm = "Data_Entry";
+          if (rLower === "admin") {
+            roleNorm = "Admin";
+          } else if (rLower === "reportonly" || rLower === "report" || rLower === "reports") {
+            roleNorm = "Report_Only";
+          } else {
+            roleNorm = "Data_Entry";
+          }
+
+          usersList.push({
+            id: u,
+            user_name: uName,
+            gmail: uGmail,
+            role: roleNorm
+          });
+        }
+      }
+    }
+
+    // 3. Fetch Locations from 'Locations' sheet under the header 'Branch'
     var locSheet = ss.getSheetByName("Locations") || ss.getSheetByName("locations") || ss.getSheetByName("Location") || ss.getSheetByName("Branches");
     var locList = [];
     if (locSheet) {
@@ -172,7 +225,9 @@ function doGet(e) {
       locations_count: locList.length,
       locations: locList,
       attendance_count: logsList.length,
-      attendance: logsList
+      attendance: logsList,
+      users_count: usersList.length,
+      users: usersList
     });
 
   } catch (err) {

@@ -29,11 +29,18 @@ const app = createApp({
         const staffList = ref([]);
         const locations = ref([]);
         const attendanceLogs = ref([]);
+        const usersList = ref([]);
 
-        // Authentication State (Google Sign-In)
+        // Authentication State (Google Sign-In) & Role Permissions
         const currentUser = ref(null);
         const isAuthChecking = ref(false);
         const authError = ref('');
+
+        // Computed Role & Permission Helpers
+        const userRole = computed(() => currentUser.value ? (currentUser.value.role || 'Data_Entry') : '');
+        const isAdmin = computed(() => userRole.value === 'Admin');
+        const canDataEntry = computed(() => userRole.value === 'Admin' || userRole.value === 'Data_Entry');
+        const canExportReports = computed(() => userRole.value === 'Admin' || userRole.value === 'Report_Only');
 
         // Date Helpers (Timezone safe for UAE GMT+4)
         const getTodayLocalStr = () => {
@@ -191,6 +198,10 @@ const app = createApp({
 
         // Quick Log a missing date
         const quickLogDate = (dateStr) => {
+            if (!canDataEntry.value) {
+                showToast("Access Denied: Data entry is restricted for your role (" + userRole.value + ").", "error");
+                return;
+            }
             if (dateStr > todayStr) {
                 showToast("Future dates cannot be logged.", "error");
                 return;
@@ -229,11 +240,22 @@ const app = createApp({
                     if (data.attendance && Array.isArray(data.attendance)) {
                         attendanceLogs.value = data.attendance;
                     }
+                    if (data.users && Array.isArray(data.users)) {
+                        usersList.value = data.users;
+                        // Keep current user role in sync if updated in sheet
+                        if (currentUser.value && currentUser.value.email) {
+                            const uMatch = usersList.value.find(u => u.gmail && u.gmail.toLowerCase().trim() === currentUser.value.email.toLowerCase().trim());
+                            if (uMatch && uMatch.role) {
+                                currentUser.value.role = uMatch.role;
+                                localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
+                            }
+                        }
+                    }
 
                     // Auto-select logged-in user's staff record if available
-                    if (!entryForm.value.staff_name && currentUser.value && currentUser.value.staff) {
+                    if (canDataEntry.value && !entryForm.value.staff_name && currentUser.value && currentUser.value.staff) {
                         selectStaffForEntry(currentUser.value.staff);
-                    } else if (!entryForm.value.staff_name && staffList.value.length > 0) {
+                    } else if (canDataEntry.value && !entryForm.value.staff_name && staffList.value.length > 0) {
                         selectStaffForEntry(staffList.value[0]);
                     }
 
@@ -261,6 +283,10 @@ const app = createApp({
         // SUBMIT ATTENDANCE (ADD BUTTON)
         // -------------------------------------------------------------
         const submitAttendanceEntry = async (allowUpdate = false) => {
+            if (!canDataEntry.value) {
+                showToast("Access Denied: Your role (" + userRole.value + ") cannot submit attendance.", "error");
+                return;
+            }
             if (!entryForm.value.staff_id) {
                 showToast("Please search and select an employee first", "error");
                 return;
@@ -650,6 +676,10 @@ const app = createApp({
         // EXCEL DOWNLOAD (.XLSX) WITH 2 SHEETS: SUMMARY + DAILY
         // -------------------------------------------------------------
         const exportExcel = () => {
+            if (!canExportReports.value) {
+                showToast("Access Denied: Report download is restricted for Data_Entry role.", "error");
+                return;
+            }
             if (typeof XLSX === 'undefined') {
                 showToast("Loading Excel exporter...", "info");
                 return;
@@ -838,39 +868,72 @@ const app = createApp({
                 if (data.attendance && Array.isArray(data.attendance)) {
                     attendanceLogs.value = data.attendance;
                 }
+                if (data.users && Array.isArray(data.users)) {
+                    usersList.value = data.users;
+                }
 
-                // STEP 2: Check email against Gmail column in Staff_data
-                const authorizedStaff = staffList.value.find(s =>
-                    (s.gmail || '').toLowerCase().trim() === userEmail
+                // STEP 2: Authenticate user using 'Users_Data' sheet
+                let matchedUser = usersList.value.find(u =>
+                    u.gmail && u.gmail.toLowerCase().trim() === userEmail
                 );
 
-                if (authorizedStaff) {
-                    // Authorized! Set current user and grant access
+                // Backward compatibility fallback if Users_Data is still being deployed
+                if (!matchedUser && usersList.value.length === 0) {
+                    const legacyStaff = staffList.value.find(s =>
+                        (s.gmail || '').toLowerCase().trim() === userEmail
+                    );
+                    if (legacyStaff) {
+                        matchedUser = {
+                            user_name: legacyStaff.name,
+                            gmail: userEmail,
+                            role: userEmail.includes('shuhaib') ? 'Admin' : 'Data_Entry'
+                        };
+                    }
+                }
+
+                if (matchedUser) {
+                    const role = matchedUser.role || 'Data_Entry';
+                    // Match with staff profile if available
+                    const matchedStaff = staffList.value.find(s =>
+                        s.name && matchedUser.user_name &&
+                        s.name.toLowerCase().trim() === matchedUser.user_name.toLowerCase().trim()
+                    );
+
                     currentUser.value = {
                         name: userData.name,
+                        userName: matchedUser.user_name || userData.name,
                         email: userEmail,
                         picture: userData.picture,
-                        staff: authorizedStaff,
+                        role: role,
+                        staff: matchedStaff || null,
                         exp: tokenExp
                     };
                     localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
                     sheetConnectionStatus.value = 'connected';
                     sheetLastSyncTime.value = new Date().toLocaleTimeString();
 
-                    // Auto-select this staff member
-                    selectStaffForEntry(authorizedStaff);
+                    // If user has data entry rights, auto-select their staff record
+                    if (canDataEntry.value && matchedStaff) {
+                        selectStaffForEntry(matchedStaff);
+                    } else if (canDataEntry.value && staffList.value.length > 0 && !entryForm.value.staff_name) {
+                        selectStaffForEntry(staffList.value[0]);
+                    }
 
-                    showToast(`Welcome, ${userData.name}! Loaded ${staffList.value.length} staff records.`);
+                    // Default tab for Report_Only
+                    if (role === 'Report_Only') {
+                        currentTab.value = 'summary';
+                    }
+
+                    showToast(`Welcome, ${userData.name}! Logged in as ${role === 'Data_Entry' ? 'Data Entry' : (role === 'Report_Only' ? 'Report Only' : 'Admin')}.`);
                 } else {
-                    // NOT authorized
-                    authError.value = `Access Denied: ${userEmail} is not registered in the Staff Directory. Contact your administrator to add your Gmail.`;
-                    // Clear any stale saved session
+                    // NOT authorized in Users_Data
+                    authError.value = `Access Denied: ${userEmail} is not registered in Users_Data sheet. Please contact your administrator to grant access.`;
                     localStorage.removeItem('attendance_auth_user');
                     currentUser.value = null;
-                    // Clear data so nothing leaks
                     staffList.value = [];
                     locations.value = [];
                     attendanceLogs.value = [];
+                    usersList.value = [];
                 }
 
             } catch (err) {
@@ -921,32 +984,59 @@ const app = createApp({
                     if (data.attendance && Array.isArray(data.attendance)) {
                         attendanceLogs.value = data.attendance;
                     }
+                    if (data.users && Array.isArray(data.users)) {
+                        usersList.value = data.users;
+                    }
 
-                    // Re-verify email is still authorized
-                    const authorizedStaff = staffList.value.find(s =>
-                        (s.gmail || '').toLowerCase().trim() === (userData.email || '').toLowerCase().trim()
+                    // Re-verify email is still authorized in Users_Data
+                    const userEmail = (userData.email || '').toLowerCase().trim();
+                    let matchedUser = usersList.value.find(u =>
+                        u.gmail && u.gmail.toLowerCase().trim() === userEmail
                     );
 
-                    if (authorizedStaff) {
-                        // Update staff reference in case data changed
-                        currentUser.value.staff = authorizedStaff;
+                    // Fallback
+                    if (!matchedUser && usersList.value.length === 0) {
+                        const legacyStaff = staffList.value.find(s =>
+                            (s.gmail || '').toLowerCase().trim() === userEmail
+                        );
+                        if (legacyStaff) {
+                            matchedUser = {
+                                user_name: legacyStaff.name,
+                                gmail: userEmail,
+                                role: userData.role || (userEmail.includes('shuhaib') ? 'Admin' : 'Data_Entry')
+                            };
+                        }
+                    }
+
+                    if (matchedUser) {
+                        const role = matchedUser.role || userData.role || 'Data_Entry';
+                        const matchedStaff = staffList.value.find(s =>
+                            s.name && matchedUser.user_name &&
+                            s.name.toLowerCase().trim() === matchedUser.user_name.toLowerCase().trim()
+                        );
+
+                        currentUser.value.role = role;
+                        currentUser.value.userName = matchedUser.user_name || userData.userName;
+                        currentUser.value.staff = matchedStaff || userData.staff || null;
+
                         localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
                         sheetConnectionStatus.value = 'connected';
                         sheetLastSyncTime.value = new Date().toLocaleTimeString();
 
-                        if (!entryForm.value.staff_name) {
-                            selectStaffForEntry(authorizedStaff);
+                        if (canDataEntry.value && matchedStaff && !entryForm.value.staff_name) {
+                            selectStaffForEntry(matchedStaff);
                         }
 
                         initialLoading.value = false;
                         return true;
                     } else {
-                        // Email was removed from staff list
+                        // User was removed from Users_Data
                         currentUser.value = null;
                         localStorage.removeItem('attendance_auth_user');
                         staffList.value = [];
                         locations.value = [];
                         attendanceLogs.value = [];
+                        usersList.value = [];
                         initialLoading.value = false;
                         return false;
                     }
@@ -972,6 +1062,7 @@ const app = createApp({
             staffList.value = [];
             locations.value = [];
             attendanceLogs.value = [];
+            usersList.value = [];
             entryForm.value.staff_name = '';
             entryForm.value.employee_code = '';
             entryForm.value.staff_id = null;
@@ -1033,6 +1124,10 @@ const app = createApp({
             connectModal,
             authModal,
             currentUser,
+            userRole,
+            isAdmin,
+            canDataEntry,
+            canExportReports,
             isAuthChecking,
             authError,
             signOut,
@@ -1047,6 +1142,7 @@ const app = createApp({
             searchQuery,
             statusFilter,
             staffList,
+            usersList,
             reportData,
             selectedStaffReport,
             filteredStaffReports,
