@@ -1,26 +1,33 @@
 /**
  * ======================================================================
- * STAFF ATTENDANCE SYSTEM — GOOGLE APPS SCRIPT WEB APP BACKEND (v3.1)
+ * STAFF ATTENDANCE SYSTEM — GOOGLE APPS SCRIPT WEB APP BACKEND (v4.0)
  * ======================================================================
  * 
  * SPREADSHEET URL:
  * https://docs.google.com/spreadsheets/d/1fKcoTVzIqvA4fsq75oOxXLp2tqQ-e74UZNVhPWFp3-Y/edit?usp=sharing
  * 
- * SHEETS USED:
- * 1. 'Staff_data'      -> Sl. No. | Employee Code | Employee Name | Designation | Allocated to | Whatsapp | IMAGE
- * 2. 'Users_Data'      -> UserName | Gmail | Role (Admin, Data_Entry, Report_Only)
- * 3. 'Locations'       -> Branch | Emr | Location
- * 4. 'Attendance_data' -> Timestamp | Date | Employee Code | Employee Name | Branch | Status | Start Time | End Time | Total Hours | Notes
+ * SHEETS USED & EXACT COLUMNS:
+ * 1. Staff_data:
+ *    Sl. No. | Employee Code | Employee Name | Designation | Allocated to | Whatsapp | IMAGE | Gmail | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
  * 
- * ----------------------------------------------------------------------
- * WEEK & SHIFT RULES:
- * - A week runs Monday to Sunday (ISO calendar week).
- * - Weekly target: 48 Hours.
- * - Standard Week Offs (WO): THURSDAY and SATURDAY.
- * - Cutoff cycle: 20th of the month to 19th of the next month.
- * - 1-Year Rolling Retention: Records older than 365 days are pruned.
- * - Duplicate Prevention: Identical entries are not duplicated.
- * ----------------------------------------------------------------------
+ * 2. User_Allocation:
+ *    Employee Code | Employee Name | Allocated to Employee Code | Allocated to Employee Name | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+ * 
+ * 3. Schedule:
+ *    Branch | Location | Visit Date | Visit Time | Allocated to Staff | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+ * 
+ * 4. Users_Data:
+ *    UserName | Gmail | Role | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+ * 
+ * 5. Roles:
+ *    Role | Attendance Entry Form | View Reports & Breakdowns | Download Excel Reports | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+ * 
+ * 6. Locations:
+ *    Branch | Emr | Location | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+ * 
+ * 7. Attendance_data:
+ *    Timestamp | Date | Employee Code | Employee Name | Branch | Status | Start Time | End Time | Total Hours | Notes | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+ * ======================================================================
  */
 
 function formatDateSafe(val, tz) {
@@ -45,6 +52,21 @@ function formatDateSafe(val, tz) {
   return str;
 }
 
+function getFormattedAuditDate(tz) {
+  var d = new Date();
+  try {
+    return Utilities.formatDate(d, tz || Session.getScriptTimeZone(), "dd:MM:yy HH:mm:ss");
+  } catch(e) {
+    var day = ("0" + d.getDate()).slice(-2);
+    var mon = ("0" + (d.getMonth() + 1)).slice(-2);
+    var yr = d.getFullYear().toString().slice(-2);
+    var hh = ("0" + d.getHours()).slice(-2);
+    var mm = ("0" + d.getMinutes()).slice(-2);
+    var ss = ("0" + d.getSeconds()).slice(-2);
+    return day + ":" + mon + ":" + yr + " " + hh + ":" + mm + ":" + ss;
+  }
+}
+
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
@@ -65,11 +87,24 @@ function doGet(e) {
     }
   }
 
+  // Support Admin CRUD via GET
+  if (action === "admin_crud" || action === "crud") {
+    try {
+      var crudPayloadStr = params.payload || params.data;
+      if (!crudPayloadStr) {
+        return createJsonResponse({ status: "error", message: "Missing payload for CRUD" });
+      }
+      var crudPayload = (typeof crudPayloadStr === "string") ? JSON.parse(decodeURIComponent(crudPayloadStr)) : crudPayloadStr;
+      return handleAdminCrud(ss, crudPayload, tz);
+    } catch (err) {
+      return createJsonResponse({ status: "error", message: "GET CRUD error: " + err.toString() });
+    }
+  }
+
   try {
-    // 1. Fetch Staff Data from 'Staff_data'
-    // Header: Sl. No.(0) | Employee Code(1) | Employee Name(2) | Designation(3) | Allocated to(4) | Whatsapp(5) | IMAGE(6)
+    // 1. Staff_data
     var staffSheet = ss.getSheetByName("Staff_data") || ss.getSheets()[0];
-    var staffData = staffSheet.getDataRange().getValues();
+    var staffData = staffSheet ? staffSheet.getDataRange().getValues() : [];
     var staffList = [];
 
     for (var i = 1; i < staffData.length; i++) {
@@ -83,6 +118,9 @@ function doGet(e) {
       var allocatedTo = row[4] ? row[4].toString().trim().toUpperCase() : "HEAD OFFICE";
       var whatsapp = row[5] ? row[5].toString().trim() : "";
       var imageUrl = row[6] ? row[6].toString().trim() : "";
+      var gmail = row[7] ? row[7].toString().trim().toLowerCase() : "";
+      var updatedBy = (row.length > 8 && row[8]) ? row[8].toString().trim() : "";
+      var updatedDate = (row.length > 9 && row[9]) ? row[9].toString().trim() : "";
 
       if (!imageUrl || imageUrl === "CellImage") {
         imageUrl = "https://api.dicebear.com/7.x/initials/svg?seed=" + encodeURIComponent(empName) + "&backgroundColor=0284c7,0d9488,4f46e5&textColor=ffffff";
@@ -90,107 +128,161 @@ function doGet(e) {
 
       staffList.push({
         id: i,
+        row_index: i + 1,
         sl_no: slNo,
         employee_code: empCode,
         name: empName,
         designation: designation,
         allocated_to: allocatedTo,
         whatsapp: whatsapp,
-        image_url: imageUrl
+        image_url: imageUrl,
+        gmail: gmail,
+        updated_by_user: updatedBy,
+        updated_by_date: updatedDate
       });
     }
 
-    // 2. Fetch User Permissions from 'Users_Data'
-    // Header: UserName | Gmail | Role (Admin, Data_Entry, Report_Only)
-    var usersSheet = ss.getSheetByName("Users_Data") || 
-                     ss.getSheetByName("users_data") || 
-                     ss.getSheetByName("Users Data") || 
-                     ss.getSheetByName("User_Data");
+    // 2. Users_Data
+    var usersSheet = ss.getSheetByName("Users_Data") || ss.getSheetByName("users_data") || ss.getSheetByName("Users Data");
     var usersList = [];
     if (usersSheet) {
       var usersData = usersSheet.getDataRange().getValues();
-      if (usersData.length > 0) {
-        var uHeaders = usersData[0];
-        var uNameCol = 0;
-        var uGmailCol = 1;
-        var uRoleCol = 2;
+      for (var u = 1; u < usersData.length; u++) {
+        var urow = usersData[u];
+        var uName = urow[0] ? urow[0].toString().trim() : "";
+        var uGmail = urow[1] ? urow[1].toString().trim().toLowerCase() : "";
+        var uRole = urow[2] ? urow[2].toString().trim() : "Data_Entry";
+        var uUpdatedBy = (urow.length > 3 && urow[3]) ? urow[3].toString().trim() : "";
+        var uUpdatedDate = (urow.length > 4 && urow[4]) ? urow[4].toString().trim() : "";
 
-        for (var uc = 0; uc < uHeaders.length; uc++) {
-          var uh = uHeaders[uc] ? uHeaders[uc].toString().trim().toLowerCase() : "";
-          if (uh === "username" || uh === "user name" || uh === "name" || uh === "employee name") {
-            uNameCol = uc;
-          } else if (uh === "gmail" || uh === "email" || uh === "mail") {
-            uGmailCol = uc;
-          } else if (uh === "role" || uh === "user role" || uh === "permission" || uh === "roles") {
-            uRoleCol = uc;
-          }
+        if (!uName && !uGmail) continue;
+
+        var rLower = uRole.toLowerCase().replace(/[\s\-_]/g, "");
+        var roleNorm = "Data_Entry";
+        if (rLower === "admin") {
+          roleNorm = "Admin";
+        } else if (rLower === "reportonly" || rLower === "report" || rLower === "reports") {
+          roleNorm = "Report_Only";
+        } else {
+          roleNorm = "Data_Entry";
         }
 
-        for (var u = 1; u < usersData.length; u++) {
-          var urow = usersData[u];
-          var uName = (uNameCol < urow.length && urow[uNameCol]) ? urow[uNameCol].toString().trim() : "";
-          var uGmail = (uGmailCol < urow.length && urow[uGmailCol]) ? urow[uGmailCol].toString().trim().toLowerCase() : "";
-          var uRole = (uRoleCol < urow.length && urow[uRoleCol]) ? urow[uRoleCol].toString().trim() : "Data_Entry";
-
-          if (!uName && !uGmail) continue;
-
-          var rLower = uRole.toLowerCase().replace(/[\s\-_]/g, "");
-          var roleNorm = "Data_Entry";
-          if (rLower === "admin") {
-            roleNorm = "Admin";
-          } else if (rLower === "reportonly" || rLower === "report" || rLower === "reports") {
-            roleNorm = "Report_Only";
-          } else {
-            roleNorm = "Data_Entry";
-          }
-
-          usersList.push({
-            id: u,
-            user_name: uName,
-            gmail: uGmail,
-            role: roleNorm
-          });
-        }
+        usersList.push({
+          id: u,
+          row_index: u + 1,
+          user_name: uName,
+          gmail: uGmail,
+          role: roleNorm,
+          updated_by_user: uUpdatedBy,
+          updated_by_date: uUpdatedDate
+        });
       }
     }
 
-    // 3. Fetch Locations from 'Locations' sheet under the header 'Branch'
-    var locSheet = ss.getSheetByName("Locations") || ss.getSheetByName("locations") || ss.getSheetByName("Location") || ss.getSheetByName("Branches");
+    // 3. User_Allocation
+    var allocSheet = ss.getSheetByName("User_Allocation") || ss.getSheetByName("user_allocation") || ss.getSheetByName("User Allocation");
+    var allocList = [];
+    if (allocSheet) {
+      var allocData = allocSheet.getDataRange().getValues();
+      for (var al = 1; al < allocData.length; al++) {
+        var aRow = allocData[al];
+        var empCodeAlloc = aRow[0] ? aRow[0].toString().trim() : "";
+        var empNameAlloc = aRow[1] ? aRow[1].toString().trim() : "";
+        var targetCode = aRow[2] ? aRow[2].toString().trim() : "";
+        var targetName = aRow[3] ? aRow[3].toString().trim() : "";
+        var aUpdatedBy = (aRow.length > 4 && aRow[4]) ? aRow[4].toString().trim() : "";
+        var aUpdatedDate = (aRow.length > 5 && aRow[5]) ? aRow[5].toString().trim() : "";
+
+        if (!empCodeAlloc && !empNameAlloc && !targetCode) continue;
+
+        allocList.push({
+          id: al,
+          row_index: al + 1,
+          employee_code: empCodeAlloc,
+          employee_name: empNameAlloc,
+          allocated_to_code: targetCode,
+          allocated_to_name: targetName,
+          updated_by_user: aUpdatedBy,
+          updated_by_date: aUpdatedDate
+        });
+      }
+    }
+
+    // 4. Schedule
+    var schedSheet = ss.getSheetByName("Schedule") || ss.getSheetByName("schedule");
+    var schedList = [];
+    if (schedSheet) {
+      var schedData = schedSheet.getDataRange().getValues();
+      for (var sc = 1; sc < schedData.length; sc++) {
+        var sRow = schedData[sc];
+        var sBranch = sRow[0] ? sRow[0].toString().trim() : "";
+        var sLoc = sRow[1] ? sRow[1].toString().trim() : "";
+        var sDate = sRow[2] ? formatDateSafe(sRow[2], tz) : "";
+        var sTime = sRow[3] ? sRow[3].toString().trim() : "";
+        var sStaff = sRow[4] ? sRow[4].toString().trim() : "";
+        var sUpdatedBy = (sRow.length > 5 && sRow[5]) ? sRow[5].toString().trim() : "";
+        var sUpdatedDate = (sRow.length > 6 && sRow[6]) ? sRow[6].toString().trim() : "";
+
+        if (!sBranch && !sDate && !sStaff) continue;
+
+        schedList.push({
+          id: sc,
+          row_index: sc + 1,
+          branch: sBranch,
+          location: sLoc,
+          visit_date: sDate,
+          visit_time: sTime,
+          allocated_to_staff: sStaff,
+          updated_by_user: sUpdatedBy,
+          updated_by_date: sUpdatedDate
+        });
+      }
+    }
+
+    // 5. Locations
+    var locSheet = ss.getSheetByName("Locations") || ss.getSheetByName("locations");
     var locList = [];
     if (locSheet) {
       var locData = locSheet.getDataRange().getValues();
-      if (locData.length > 0) {
-        var locHeaders = locData[0];
-        var branchCol = 0;
-        var emrCol = 1;
-        var locCol = 2;
-
-        for (var c = 0; c < locHeaders.length; c++) {
-          var h = locHeaders[c] ? locHeaders[c].toString().trim().toLowerCase() : "";
-          if (h === "branch" || h === "branch name" || h === "branches") {
-            branchCol = c;
-          } else if (h === "emr" || h === "emirate") {
-            emrCol = c;
-          } else if (h === "location" || h === "city" || h === "area") {
-            locCol = c;
-          }
-        }
-
-        for (var k = 1; k < locData.length; k++) {
-          var lrow = locData[k];
-          var bName = lrow[branchCol] ? lrow[branchCol].toString().trim() : "";
-          if (!bName) continue;
-          locList.push({
-            id: k,
-            branch: bName,
-            emr: (emrCol < lrow.length && lrow[emrCol]) ? lrow[emrCol].toString().trim() : "",
-            location: (locCol < lrow.length && lrow[locCol]) ? lrow[locCol].toString().trim() : ""
-          });
-        }
+      for (var k = 1; k < locData.length; k++) {
+        var lrow = locData[k];
+        var bName = lrow[0] ? lrow[0].toString().trim() : "";
+        if (!bName) continue;
+        locList.push({
+          id: k,
+          row_index: k + 1,
+          branch: bName,
+          emr: lrow[1] ? lrow[1].toString().trim() : "",
+          location: lrow[2] ? lrow[2].toString().trim() : "",
+          updated_by_user: (lrow.length > 3 && lrow[3]) ? lrow[3].toString().trim() : "",
+          updated_by_date: (lrow.length > 4 && lrow[4]) ? lrow[4].toString().trim() : ""
+        });
       }
     }
 
-    // 3. Fetch Attendance from 'Attendance_data'
+    // 6. Roles
+    var rolesSheet = ss.getSheetByName("Roles") || ss.getSheetByName("roles");
+    var rolesList = [];
+    if (rolesSheet) {
+      var rolesData = rolesSheet.getDataRange().getValues();
+      for (var ro = 1; ro < rolesData.length; ro++) {
+        var rRow = rolesData[ro];
+        var rName = rRow[0] ? rRow[0].toString().trim() : "";
+        if (!rName) continue;
+        rolesList.push({
+          id: ro,
+          row_index: ro + 1,
+          role: rName,
+          entry_form: rRow[1] ? rRow[1].toString().trim() : "",
+          reports: rRow[2] ? rRow[2].toString().trim() : "",
+          download_excel: rRow[3] ? rRow[3].toString().trim() : "",
+          updated_by_user: (rRow.length > 4 && rRow[4]) ? rRow[4].toString().trim() : "",
+          updated_by_date: (rRow.length > 5 && rRow[5]) ? rRow[5].toString().trim() : ""
+        });
+      }
+    }
+
+    // 7. Attendance_data
     var attSheet = ss.getSheetByName("Attendance_data");
     var logsList = [];
     if (attSheet) {
@@ -203,6 +295,7 @@ function doGet(e) {
 
         logsList.push({
           id: a,
+          row_index: a + 1,
           timestamp: aRow[0] ? aRow[0].toString() : "",
           date: dateFormatted,
           employee_code: aRow[2] ? aRow[2].toString().trim() : "",
@@ -212,7 +305,9 @@ function doGet(e) {
           check_in: aRow[6] ? aRow[6].toString().trim() : "",
           check_out: aRow[7] ? aRow[7].toString().trim() : "",
           total_hours: aRow[8] ? parseFloat(aRow[8]) : 0.0,
-          notes: aRow[9] ? aRow[9].toString().trim() : ""
+          notes: aRow[9] ? aRow[9].toString().trim() : "",
+          updated_by_user: (aRow.length > 10 && aRow[10]) ? aRow[10].toString().trim() : "",
+          updated_by_date: (aRow.length > 11 && aRow[11]) ? aRow[11].toString().trim() : ""
         });
       }
     }
@@ -222,12 +317,18 @@ function doGet(e) {
       sheet_name: ss.getName(),
       staff_count: staffList.length,
       staff: staffList,
+      users_count: usersList.length,
+      users: usersList,
+      allocations_count: allocList.length,
+      allocations: allocList,
+      schedules_count: schedList.length,
+      schedules: schedList,
       locations_count: locList.length,
       locations: locList,
+      roles_count: rolesList.length,
+      roles: rolesList,
       attendance_count: logsList.length,
-      attendance: logsList,
-      users_count: usersList.length,
-      users: usersList
+      attendance: logsList
     });
 
   } catch (err) {
@@ -269,6 +370,10 @@ function doPost(e) {
       return handleLogAttendance(ss, payload, tz);
     }
 
+    if (action === "admin_crud" || action === "crud") {
+      return handleAdminCrud(ss, payload, tz);
+    }
+
     return createJsonResponse({ status: "unsupported_action" });
 
   } catch (err) {
@@ -279,15 +384,19 @@ function doPost(e) {
   }
 }
 
+/**
+ * Log Attendance with Audit Trail (Preserves all existing records)
+ */
 function handleLogAttendance(ss, payload, tz) {
   var targetSheet = ss.getSheetByName("Attendance_data");
   if (!targetSheet) {
     targetSheet = ss.insertSheet("Attendance_data");
     targetSheet.appendRow([
       "Timestamp", "Date", "Employee Code", "Employee Name", "Branch",
-      "Status", "Start Time", "End Time", "Total Hours", "Notes"
+      "Status", "Start Time", "End Time", "Total Hours", "Notes",
+      "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"
     ]);
-    targetSheet.getRange("A1:J1").setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+    targetSheet.getRange("A1:L1").setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
   }
 
   var dateStr = payload.date ? payload.date.toString().trim() : "";
@@ -300,8 +409,9 @@ function handleLogAttendance(ss, payload, tz) {
   var newCheckOut = payload.check_out ? payload.check_out.toString().trim() : "";
   var newHours = parseFloat(payload.total_hours) || 0.0;
   var newNotes = payload.notes ? payload.notes.toString().trim() : "";
+  var updatedBy = payload.updated_by_user ? payload.updated_by_user.toString().trim() : (payload.user_name || "User");
+  var auditDate = getFormattedAuditDate(tz);
 
-  // Check duplicate on same date for same employee
   var existingData = targetSheet.getDataRange().getValues();
   var existingRowIndex = -1;
   var existingRowData = null;
@@ -316,7 +426,7 @@ function handleLogAttendance(ss, payload, tz) {
     var nameMatch = (empName !== "" && rName !== "" && rName.toLowerCase() === empName.toLowerCase());
 
     if (dateMatch && (codeMatch || nameMatch)) {
-      existingRowIndex = r + 1; // 1-based index in Google Sheets
+      existingRowIndex = r + 1;
       existingRowData = existingData[r];
       break;
     }
@@ -354,8 +464,7 @@ function handleLogAttendance(ss, payload, tz) {
       });
     }
 
-    // Update existing row
-    targetSheet.getRange(existingRowIndex, 1, 1, 10).setValues([[
+    targetSheet.getRange(existingRowIndex, 1, 1, 12).setValues([[
       nowTimestamp,
       dateStr,
       empCode,
@@ -365,7 +474,9 @@ function handleLogAttendance(ss, payload, tz) {
       newCheckIn,
       newCheckOut,
       newHours,
-      newNotes
+      newNotes,
+      updatedBy,
+      auditDate
     ]]);
 
     return createJsonResponse({
@@ -374,7 +485,6 @@ function handleLogAttendance(ss, payload, tz) {
       message: "Updated attendance for " + empName + " on " + dateStr
     });
   } else {
-    // Append new row
     targetSheet.appendRow([
       nowTimestamp,
       dateStr,
@@ -385,7 +495,9 @@ function handleLogAttendance(ss, payload, tz) {
       newCheckIn,
       newCheckOut,
       newHours,
-      newNotes
+      newNotes,
+      updatedBy,
+      auditDate
     ]);
 
     pruneOldAttendanceRecords(targetSheet, tz);
@@ -396,6 +508,163 @@ function handleLogAttendance(ss, payload, tz) {
       message: "Added attendance for " + empName + " on " + dateStr
     });
   }
+}
+
+/**
+ * Universal Admin CRUD Operations across All Sheets
+ * payload: {
+ *   sheet_name: 'Staff_data' | 'Users_Data' | 'User_Allocation' | 'Schedule' | 'Locations' | 'Roles',
+ *   operation: 'add' | 'edit' | 'delete',
+ *   row_index: number (1-based sheet row index, required for edit/delete),
+ *   data: object,
+ *   updated_by_user: string
+ * }
+ */
+function handleAdminCrud(ss, payload, tz) {
+  var sheetName = payload.sheet_name;
+  var operation = payload.operation;
+  var updatedBy = payload.updated_by_user || "Admin";
+  var auditDate = getFormattedAuditDate(tz);
+
+  if (!sheetName || !operation) {
+    return createJsonResponse({ status: "error", message: "Missing sheet_name or operation" });
+  }
+
+  var sheet = ss.getSheetByName(sheetName);
+  
+  // Auto-create missing sheets with proper headers if not existing
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    var headers = [];
+    if (sheetName === "Staff_data") {
+      headers = ["Sl. No.", "Employee Code", "Employee Name", "Designation", "Allocated to", "Whatsapp", "IMAGE", "Gmail", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+    } else if (sheetName === "Users_Data") {
+      headers = ["UserName", "Gmail", "Role", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+    } else if (sheetName === "User_Allocation") {
+      headers = ["Employee Code", "Employee Name", "Allocated to Employee Code", "Allocated to Employee Name", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+    } else if (sheetName === "Schedule") {
+      headers = ["Branch", "Location", "Visit Date", "Visit Time", "Allocated to Staff", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+    } else if (sheetName === "Locations") {
+      headers = ["Branch", "Emr", "Location", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+    } else if (sheetName === "Roles") {
+      headers = ["Role", "Attendance Entry Form", "View Reports & Breakdowns", "Download Excel Reports", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+    }
+    if (headers.length > 0) {
+      sheet.appendRow(headers);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+    }
+  }
+
+  var data = payload.data || {};
+
+  // 1. DELETE
+  if (operation === "delete") {
+    var rowIndex = parseInt(payload.row_index, 10);
+    if (!rowIndex || rowIndex < 2 || rowIndex > sheet.getLastRow()) {
+      return createJsonResponse({ status: "error", message: "Invalid row_index for delete: " + payload.row_index });
+    }
+    sheet.deleteRow(rowIndex);
+    return createJsonResponse({
+      status: "success",
+      action: "deleted",
+      sheet_name: sheetName,
+      row_index: rowIndex,
+      message: "Deleted record at row " + rowIndex + " in " + sheetName
+    });
+  }
+
+  // 2. ADD or EDIT row mapping
+  var rowValues = [];
+
+  if (sheetName === "Staff_data") {
+    var nextSl = sheet.getLastRow();
+    rowValues = [
+      data.sl_no || nextSl,
+      data.employee_code || "",
+      data.name || "",
+      data.designation || "Staff",
+      (data.allocated_to || "HEAD OFFICE").toUpperCase(),
+      data.whatsapp || "",
+      data.image_url || "",
+      (data.gmail || "").toLowerCase().trim(),
+      updatedBy,
+      auditDate
+    ];
+  } else if (sheetName === "Users_Data") {
+    rowValues = [
+      data.user_name || "",
+      (data.gmail || "").toLowerCase().trim(),
+      data.role || "Data_Entry",
+      updatedBy,
+      auditDate
+    ];
+  } else if (sheetName === "User_Allocation") {
+    rowValues = [
+      data.employee_code || "",
+      data.employee_name || "",
+      data.allocated_to_code || "",
+      data.allocated_to_name || "",
+      updatedBy,
+      auditDate
+    ];
+  } else if (sheetName === "Schedule") {
+    rowValues = [
+      data.branch || "",
+      data.location || "",
+      data.visit_date || "",
+      data.visit_time || "",
+      data.allocated_to_staff || "",
+      updatedBy,
+      auditDate
+    ];
+  } else if (sheetName === "Locations") {
+    rowValues = [
+      data.branch || "",
+      (data.emr || "").toUpperCase(),
+      data.location || "",
+      updatedBy,
+      auditDate
+    ];
+  } else if (sheetName === "Roles") {
+    rowValues = [
+      data.role || "",
+      data.entry_form || "",
+      data.reports || "",
+      data.download_excel || "",
+      updatedBy,
+      auditDate
+    ];
+  } else {
+    return createJsonResponse({ status: "error", message: "Unsupported sheet for CRUD: " + sheetName });
+  }
+
+  if (operation === "add") {
+    sheet.appendRow(rowValues);
+    return createJsonResponse({
+      status: "success",
+      action: "added",
+      sheet_name: sheetName,
+      row_index: sheet.getLastRow(),
+      message: "Added new record to " + sheetName
+    });
+  }
+
+  if (operation === "edit") {
+    var editRowIndex = parseInt(payload.row_index, 10);
+    if (!editRowIndex || editRowIndex < 2 || editRowIndex > sheet.getLastRow()) {
+      return createJsonResponse({ status: "error", message: "Invalid row_index for edit: " + payload.row_index });
+    }
+    sheet.getRange(editRowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+    return createJsonResponse({
+      status: "success",
+      action: "updated",
+      sheet_name: sheetName,
+      row_index: editRowIndex,
+      message: "Updated record at row " + editRowIndex + " in " + sheetName
+    });
+  }
+
+  return createJsonResponse({ status: "error", message: "Unknown operation: " + operation });
 }
 
 function pruneOldAttendanceRecords(sheet, tz) {

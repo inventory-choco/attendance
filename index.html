@@ -190,7 +190,24 @@
                         class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
                         :class="currentTab === 'roster' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
                     <i class="fa-solid fa-id-badge"></i>
-                    <span>Staff Directory ({{ staffList.length }})</span>
+                    <span>Staff Directory ({{ visibleStaffList.length }})</span>
+                </button>
+
+                <!-- Branch Visit Schedule Tab -->
+                <button @click="currentTab = 'schedule'"
+                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        :class="currentTab === 'schedule' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
+                    <i class="fa-solid fa-map-location-dot"></i>
+                    <span>Branch Visit Schedule ({{ schedulesList.length }})</span>
+                </button>
+
+                <!-- Admin Portal Tab (Admin Role ONLY) -->
+                <button v-if="isAdmin" @click="currentTab = 'admin'"
+                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap ml-auto"
+                        :class="currentTab === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-md shadow-amber-500/10' : 'text-amber-400/90 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-500/30'">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>Admin Portal</span>
+                    <span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold uppercase">Admin</span>
                 </button>
             </div>
         </div>
@@ -794,7 +811,7 @@
         <!-- ========================================================= -->
         <div v-if="currentTab === 'roster'" class="space-y-4">
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div v-for="s in staffList" :key="s.employee_code"
+                <div v-for="s in visibleStaffList" :key="s.employee_code"
                      class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex items-center justify-between gap-3 hover:border-slate-700 transition">
                     <div class="flex items-center gap-3">
                         <img :src="s.image_url" class="w-12 h-12 rounded-xl bg-slate-800 object-cover border border-slate-700" />
@@ -818,10 +835,834 @@
                 </div>
             </div>
         </div>
+        <!-- ========================================================= -->
+        <!-- TAB 4: BRANCH VISIT SCHEDULE                             -->
+        <!-- ========================================================= -->
+        <div v-if="currentTab === 'schedule'" class="space-y-6">
+
+            <!-- Schedule Form Card -->
+            <div id="schedule-form-card" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-5">
+                    <div>
+                        <h2 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
+                            <i class="fa-solid fa-map-location-dot text-emerald-400"></i>
+                            <span>{{ scheduleForm.is_editing ? 'Edit Branch Visit Schedule' : 'Schedule Branch Visit' }}</span>
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Plan store and branch visits. Pick the branch (location auto-fills), date, time, and assigned staff member.
+                        </p>
+                    </div>
+                    <span v-if="scheduleForm.is_editing" class="text-xs px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                        Editing Row #{{ scheduleForm.row_index }}
+                    </span>
+                </div>
+
+                <!-- Form Inputs Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                    <!-- Branch Selection -->
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1.5">
+                            Branch <span class="text-emerald-400">*</span>
+                        </label>
+                        <select v-model="scheduleForm.branch" @change="onScheduleBranchChange"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-semibold">
+                            <option value="" disabled>-- Select Branch --</option>
+                            <option v-for="loc in sortedLocations" :key="loc.branch" :value="loc.branch">
+                                {{ loc.branch }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- Location (Auto-filled from branch) -->
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1.5">
+                            Location (Auto-Filled)
+                        </label>
+                        <input v-model="scheduleForm.location" type="text" placeholder="Auto-filled from branch..."
+                               class="w-full bg-slate-950/80 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none font-medium" />
+                    </div>
+
+                    <!-- Visit Date -->
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1.5">
+                            Visit Date <span class="text-emerald-400">*</span>
+                        </label>
+                        <input v-model="scheduleForm.visit_date" type="date"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-mono" />
+                    </div>
+
+                    <!-- Visit Time -->
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1.5">
+                            Visit Time
+                        </label>
+                        <input v-model="scheduleForm.visit_time" type="time"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-mono" />
+                    </div>
+
+                    <!-- Staff Assigned -->
+                    <div class="sm:col-span-2 lg:col-span-4">
+                        <label class="block font-semibold text-slate-300 mb-1.5">
+                            Allocated to Staff <span class="text-emerald-400">*</span>
+                        </label>
+                        <select v-model="scheduleForm.allocated_to_staff"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-semibold">
+                            <option value="" disabled>-- Select Staff Member --</option>
+                            <option v-for="s in visibleStaffList" :key="s.employee_code" :value="s.name + ' (' + s.employee_code + ')'">
+                                {{ s.name }} (Code: {{ s.employee_code }}) • {{ s.designation }} • {{ s.allocated_to }}
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Form Action Buttons -->
+                <div class="mt-5 pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                    <button v-if="scheduleForm.is_editing" @click="cancelScheduleEdit"
+                            class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition">
+                        Cancel Edit
+                    </button>
+                    <button @click="saveSchedule" :disabled="loading"
+                            class="px-7 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs shadow-lg shadow-emerald-500/25 transition flex items-center gap-2">
+                        <i :class="loading ? 'fa-solid fa-spinner spinning' : (scheduleForm.is_editing ? 'fa-solid fa-check' : 'fa-solid fa-plus')"></i>
+                        <span>{{ scheduleForm.is_editing ? 'Update Visit Schedule' : 'Schedule Branch Visit' }}</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Schedules Filter & Actions Bar -->
+            <div class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-3 text-xs">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-slate-400">Branch:</span>
+                        <select v-model="scheduleFilterBranch"
+                                class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
+                            <option value="ALL">All Branches</option>
+                            <option v-for="loc in sortedLocations" :key="loc.branch" :value="loc.branch">{{ loc.branch }}</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-slate-400">Staff:</span>
+                        <select v-model="scheduleFilterStaff"
+                                class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
+                            <option value="ALL">All Staff</option>
+                            <option v-for="s in visibleStaffList" :key="s.employee_code" :value="s.name">{{ s.name }}</option>
+                        </select>
+                    </div>
+
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-xs text-slate-500"></i>
+                        <input v-model="scheduleSearchQuery" type="text" placeholder="Search visits..."
+                               class="bg-navy-950 border border-slate-700 text-slate-200 text-xs rounded-lg pl-7 pr-3 py-1.5 focus:outline-none focus:border-emerald-500 w-44" />
+                    </div>
+                </div>
+
+                <!-- Export Schedule Excel Button -->
+                <button @click="exportScheduleExcel" :disabled="schedulesList.length === 0"
+                        class="px-4 py-2 rounded-xl bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-file-excel"></i>
+                    <span>Export Schedule Excel</span>
+                </button>
+            </div>
+
+            <!-- Schedules Table -->
+            <div class="bg-navy-900 rounded-3xl border border-slate-800 shadow-xl overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs whitespace-nowrap">
+                        <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                            <tr>
+                                <th class="py-3 px-4">Visit Date & Time</th>
+                                <th class="py-3 px-4">Branch</th>
+                                <th class="py-3 px-4">Location</th>
+                                <th class="py-3 px-4">Allocated Staff</th>
+                                <th class="py-3 px-4">Updated By User</th>
+                                <th class="py-3 px-4">Audit Date</th>
+                                <th class="py-3 px-4 text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60 font-medium">
+                            <tr v-for="sc in filteredSchedules" :key="sc.row_index" class="hover:bg-slate-800/40 transition">
+                                <td class="py-3 px-4">
+                                    <div class="font-mono font-bold text-slate-100 flex items-center gap-1.5">
+                                        <i class="fa-regular fa-calendar text-emerald-400"></i>
+                                        <span>{{ sc.visit_date }}</span>
+                                        <span class="text-slate-400 font-normal">@ {{ sc.visit_time || '09:00' }}</span>
+                                    </div>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <span class="px-2.5 py-1 rounded-full bg-slate-800 text-emerald-400 font-bold text-[11px] border border-slate-700">
+                                        {{ sc.branch }}
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4 text-slate-300">{{ sc.location || '---' }}</td>
+                                <td class="py-3 px-4">
+                                    <div class="font-bold text-slate-200 flex items-center gap-1.5">
+                                        <i class="fa-solid fa-user-check text-slate-500"></i>
+                                        <span>{{ sc.allocated_to_staff }}</span>
+                                    </div>
+                                </td>
+                                <td class="py-3 px-4 text-slate-400 text-[11px]">
+                                    <span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
+                                        {{ sc.updated_by_user || 'Admin' }}
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">{{ sc.updated_by_date || '---' }}</td>
+                                <td class="py-3 px-4 text-center">
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <button @click="editSchedule(sc)" title="Edit Visit"
+                                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition">
+                                            <i class="fa-solid fa-pen-to-square"></i>
+                                        </button>
+                                        <button @click="deleteSchedule(sc)" title="Delete Visit"
+                                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr v-if="filteredSchedules.length === 0">
+                                <td colspan="7" class="py-8 text-center text-slate-500">
+                                    <i class="fa-regular fa-calendar-xmark text-2xl mb-2"></i>
+                                    <div>No visit schedules found. Create one using the form above!</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ========================================================= -->
+        <!-- TAB 5: ADMIN PORTAL (LIVE GOOGLE SHEET MANAGEMENT)        -->
+        <!-- ========================================================= -->
+        <div v-if="currentTab === 'admin' && isAdmin" class="space-y-6">
+
+            <!-- Admin Banner Card -->
+            <div class="bg-gradient-to-r from-amber-950/40 via-navy-900 to-navy-900 rounded-3xl p-5 sm:p-6 border border-amber-800/40 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-2xl border border-amber-500/20 flex-shrink-0">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="font-extrabold text-base sm:text-lg text-white">Admin Control Portal</h2>
+                            <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold uppercase">Super Admin</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-1">
+                            Direct bidirectional management with Google Sheets. Add, edit, or delete Staff, Users, Allocations, Branches, and Roles without leaving this app.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 text-xs text-slate-400 bg-navy-950 px-3.5 py-2 rounded-xl border border-slate-800">
+                    <i class="fa-solid fa-clock-rotate-left text-emerald-400"></i>
+                    <span>All changes write Audit Logs (<strong>[dd:mm:yy hh:mm:ss]</strong>)</span>
+                </div>
+            </div>
+
+            <!-- Admin Sub-tab Navigation Pills -->
+            <div class="flex space-x-2 overflow-x-auto pb-2 no-scrollbar text-xs font-semibold">
+                <button @click="adminActiveTab = 'staff'"
+                        class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        :class="adminActiveTab === 'staff' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
+                    <i class="fa-solid fa-id-badge"></i>
+                    <span>Staff Directory ({{ staffList.length }})</span>
+                </button>
+
+                <button @click="adminActiveTab = 'users'"
+                        class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        :class="adminActiveTab === 'users' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
+                    <i class="fa-solid fa-users-gear"></i>
+                    <span>User Access & Roles ({{ usersList.length }})</span>
+                </button>
+
+                <button @click="adminActiveTab = 'allocations'"
+                        class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        :class="adminActiveTab === 'allocations' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
+                    <i class="fa-solid fa-sitemap"></i>
+                    <span>Staff Allocation ({{ allocationsList.length }})</span>
+                </button>
+
+                <button @click="adminActiveTab = 'locations'"
+                        class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        :class="adminActiveTab === 'locations' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
+                    <i class="fa-solid fa-location-dot"></i>
+                    <span>Branches & Locations ({{ locations.length }})</span>
+                </button>
+
+                <button @click="adminActiveTab = 'roles'"
+                        class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
+                        :class="adminActiveTab === 'roles' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
+                    <i class="fa-solid fa-user-lock"></i>
+                    <span>Roles & Permissions ({{ rolesList.length }})</span>
+                </button>
+            </div>
+
+            <!-- SUB-TAB 1: STAFF DIRECTORY (Staff_data) -->
+            <div v-if="adminActiveTab === 'staff'" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-200">Staff Data Sheet (Staff_data)</h3>
+                        <p class="text-xs text-slate-400">Total: {{ staffList.length }} employee(s) registered</p>
+                    </div>
+                    <button @click="openAddStaffModal"
+                            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>Add New Staff</span>
+                    </button>
+                </div>
+
+                <div class="bg-navy-900 rounded-3xl border border-slate-800 shadow-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-3 px-4">Sl</th>
+                                    <th class="py-3 px-4">Code</th>
+                                    <th class="py-3 px-4">Employee Name</th>
+                                    <th class="py-3 px-4">Designation</th>
+                                    <th class="py-3 px-4">Allocated To</th>
+                                    <th class="py-3 px-4">WhatsApp</th>
+                                    <th class="py-3 px-4">Updated By</th>
+                                    <th class="py-3 px-4">Audit Date</th>
+                                    <th class="py-3 px-4 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60 font-medium">
+                                <tr v-for="s in staffList" :key="s.employee_code" class="hover:bg-slate-800/40 transition">
+                                    <td class="py-3 px-4 text-slate-400">{{ s.sl_no }}</td>
+                                    <td class="py-3 px-4">
+                                        <span class="px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono font-bold text-[11px] border border-slate-700">
+                                            {{ s.employee_code }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 font-bold text-slate-200">
+                                        <div class="flex items-center gap-2">
+                                            <img :src="s.image_url" class="w-6 h-6 rounded-full bg-slate-800 object-cover border border-slate-700" />
+                                            <span>{{ s.name }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="py-3 px-4 text-slate-300">{{ s.designation }}</td>
+                                    <td class="py-3 px-4 text-slate-300">{{ s.allocated_to }}</td>
+                                    <td class="py-3 px-4 font-mono text-emerald-400">{{ s.whatsapp || '---' }}</td>
+                                    <td class="py-3 px-4 text-slate-400 text-[11px]">{{ s.updated_by_user || 'Admin' }}</td>
+                                    <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">{{ s.updated_by_date || '---' }}</td>
+                                    <td class="py-3 px-4 text-center">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <button @click="openEditStaffModal(s)" title="Edit Staff"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition">
+                                                <i class="fa-solid fa-pen-to-square"></i>
+                                            </button>
+                                            <button @click="deleteStaffRecord(s)" title="Delete Staff"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUB-TAB 2: USERS & ROLES (Users_Data) -->
+            <div v-if="adminActiveTab === 'users'" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-200">User Access Control (Users_Data)</h3>
+                        <p class="text-xs text-slate-400">Total: {{ usersList.length }} authorized user(s)</p>
+                    </div>
+                    <button @click="openAddUserModal"
+                            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>Add User Access</span>
+                    </button>
+                </div>
+
+                <div class="bg-navy-900 rounded-3xl border border-slate-800 shadow-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-3 px-4">User Name</th>
+                                    <th class="py-3 px-4">Gmail Address</th>
+                                    <th class="py-3 px-4">Role</th>
+                                    <th class="py-3 px-4">Updated By</th>
+                                    <th class="py-3 px-4">Audit Date</th>
+                                    <th class="py-3 px-4 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60 font-medium">
+                                <tr v-for="u in usersList" :key="u.gmail" class="hover:bg-slate-800/40 transition">
+                                    <td class="py-3 px-4 font-bold text-slate-200">{{ u.user_name }}</td>
+                                    <td class="py-3 px-4 font-mono text-slate-300">{{ u.gmail }}</td>
+                                    <td class="py-3 px-4">
+                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border"
+                                              :class="u.role === 'Admin' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' : (u.role === 'Data_Entry' ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' : 'bg-purple-500/10 text-purple-300 border-purple-500/30')">
+                                            {{ u.role }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 text-slate-400 text-[11px]">{{ u.updated_by_user || 'Admin' }}</td>
+                                    <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">{{ u.updated_by_date || '---' }}</td>
+                                    <td class="py-3 px-4 text-center">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <button @click="openEditUserModal(u)" title="Edit User"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition">
+                                                <i class="fa-solid fa-pen-to-square"></i>
+                                            </button>
+                                            <button @click="deleteUserRecord(u)" title="Delete User"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUB-TAB 3: STAFF ALLOCATION (User_Allocation) -->
+            <div v-if="adminActiveTab === 'allocations'" class="space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-200">Staff Allocation Table (User_Allocation)</h3>
+                        <p class="text-xs text-slate-400">Controls which staff Data_Entry users can view & log attendance for.</p>
+                    </div>
+                    <button @click="openAddAllocModal"
+                            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Add Staff Allocation</span>
+                    </button>
+                </div>
+
+                <div class="bg-navy-900 rounded-3xl border border-slate-800 shadow-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-3 px-4">Managed Employee</th>
+                                    <th class="py-3 px-4">Assigned Controller / User</th>
+                                    <th class="py-3 px-4">Updated By</th>
+                                    <th class="py-3 px-4">Audit Date</th>
+                                    <th class="py-3 px-4 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60 font-medium">
+                                <tr v-for="al in allocationsList" :key="al.row_index" class="hover:bg-slate-800/40 transition">
+                                    <td class="py-3 px-4">
+                                        <div class="font-bold text-slate-200">{{ al.employee_name }}</div>
+                                        <div class="text-[10px] text-emerald-400 font-mono">Code: {{ al.employee_code }}</div>
+                                    </td>
+                                    <td class="py-3 px-4">
+                                        <div class="font-bold text-slate-200">{{ al.allocated_to_name }}</div>
+                                        <div class="text-[10px] text-blue-400 font-mono">Controller Code: {{ al.allocated_to_code }}</div>
+                                    </td>
+                                    <td class="py-3 px-4 text-slate-400 text-[11px]">{{ al.updated_by_user || 'Admin' }}</td>
+                                    <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">{{ al.updated_by_date || '---' }}</td>
+                                    <td class="py-3 px-4 text-center">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <button @click="openEditAllocModal(al)" title="Edit Allocation"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition">
+                                                <i class="fa-solid fa-pen-to-square"></i>
+                                            </button>
+                                            <button @click="deleteAllocRecord(al)" title="Delete Allocation"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr v-if="allocationsList.length === 0">
+                                    <td colspan="5" class="py-6 text-center text-slate-500">
+                                        No staff allocations yet. Click "Add Staff Allocation" to assign employees to users.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUB-TAB 4: BRANCHES & LOCATIONS (Locations) -->
+            <div v-if="adminActiveTab === 'locations'" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-200">Branches & Locations Sheet (Locations)</h3>
+                        <p class="text-xs text-slate-400">Total: {{ locations.length }} active branches</p>
+                    </div>
+                    <button @click="openAddLocModal"
+                            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Add Branch Location</span>
+                    </button>
+                </div>
+
+                <div class="bg-navy-900 rounded-3xl border border-slate-800 shadow-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-3 px-4">Branch Name</th>
+                                    <th class="py-3 px-4">EMR Code</th>
+                                    <th class="py-3 px-4">City / Location</th>
+                                    <th class="py-3 px-4">Updated By</th>
+                                    <th class="py-3 px-4">Audit Date</th>
+                                    <th class="py-3 px-4 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60 font-medium">
+                                <tr v-for="l in locations" :key="l.branch" class="hover:bg-slate-800/40 transition">
+                                    <td class="py-3 px-4 font-bold text-slate-200">{{ l.branch }}</td>
+                                    <td class="py-3 px-4 font-mono text-emerald-400">{{ l.emr || '---' }}</td>
+                                    <td class="py-3 px-4 text-slate-300">{{ l.location || '---' }}</td>
+                                    <td class="py-3 px-4 text-slate-400 text-[11px]">{{ l.updated_by_user || 'Admin' }}</td>
+                                    <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">{{ l.updated_by_date || '---' }}</td>
+                                    <td class="py-3 px-4 text-center">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <button @click="openEditLocModal(l)" title="Edit Branch"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition">
+                                                <i class="fa-solid fa-pen-to-square"></i>
+                                            </button>
+                                            <button @click="deleteLocRecord(l)" title="Delete Branch"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUB-TAB 5: ROLES & PERMISSIONS (Roles) -->
+            <div v-if="adminActiveTab === 'roles'" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-200">Role Permissions Sheet (Roles)</h3>
+                        <p class="text-xs text-slate-400">Total: {{ rolesList.length }} permission profiles</p>
+                    </div>
+                    <button @click="openAddRoleModal"
+                            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Add Role</span>
+                    </button>
+                </div>
+
+                <div class="bg-navy-900 rounded-3xl border border-slate-800 shadow-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-3 px-4">Role</th>
+                                    <th class="py-3 px-4">Attendance Entry Form</th>
+                                    <th class="py-3 px-4">View Reports & Breakdowns</th>
+                                    <th class="py-3 px-4">Download Excel Reports</th>
+                                    <th class="py-3 px-4">Updated By</th>
+                                    <th class="py-3 px-4">Audit Date</th>
+                                    <th class="py-3 px-4 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60 font-medium">
+                                <tr v-for="r in rolesList" :key="r.role" class="hover:bg-slate-800/40 transition">
+                                    <td class="py-3 px-4 font-bold text-slate-200">{{ r.role }}</td>
+                                    <td class="py-3 px-4 text-slate-300">{{ r.entry_form }}</td>
+                                    <td class="py-3 px-4 text-slate-300">{{ r.reports }}</td>
+                                    <td class="py-3 px-4 text-slate-300">{{ r.download_excel }}</td>
+                                    <td class="py-3 px-4 text-slate-400 text-[11px]">{{ r.updated_by_user || 'Admin' }}</td>
+                                    <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">{{ r.updated_by_date || '---' }}</td>
+                                    <td class="py-3 px-4 text-center">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <button @click="openEditRoleModal(r)" title="Edit Role"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition">
+                                                <i class="fa-solid fa-pen-to-square"></i>
+                                            </button>
+                                            <button @click="deleteRoleRecord(r)" title="Delete Role"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
 
         </template><!-- end v-else (not initialLoading) -->
 
     </main>
+
+    <!-- ============================================================= -->
+    <!-- ADMIN MODALS                                                  -->
+    <!-- ============================================================= -->
+
+    <!-- 1. Staff Modal -->
+    <div v-if="staffModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700 rounded-3xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 class="font-bold text-base text-white flex items-center gap-2">
+                    <i class="fa-solid fa-user-pen text-emerald-400"></i>
+                    <span>{{ staffModal.isEdit ? 'Edit Staff Member' : 'Add New Staff Member' }}</span>
+                </h3>
+                <button @click="staffModal.open = false" class="text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Employee Code *</label>
+                    <input v-model="staffModal.form.employee_code" type="text" placeholder="e.g. 1742"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Sl No.</label>
+                    <input v-model.number="staffModal.form.sl_no" type="number"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono" />
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block font-semibold text-slate-300 mb-1">Employee Name *</label>
+                    <input v-model="staffModal.form.name" type="text" placeholder="Full Employee Name"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-medium" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Designation</label>
+                    <input v-model="staffModal.form.designation" type="text" placeholder="e.g. Inventory Controller"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Allocated To (Branch)</label>
+                    <input v-model="staffModal.form.allocated_to" type="text" placeholder="e.g. DUBAI"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">WhatsApp Number</label>
+                    <input v-model="staffModal.form.whatsapp" type="text" placeholder="e.g. 971501234567"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Photo / Image URL</label>
+                    <input v-model="staffModal.form.image_url" type="text" placeholder="https://..."
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button @click="staffModal.open = false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition">
+                    Cancel
+                </button>
+                <button @click="saveStaffModal" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md">
+                    {{ staffModal.isEdit ? 'Update Staff' : 'Save Staff' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. User Access Modal -->
+    <div v-if="userModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 class="font-bold text-base text-white flex items-center gap-2">
+                    <i class="fa-solid fa-user-shield text-emerald-400"></i>
+                    <span>{{ userModal.isEdit ? 'Edit User Access' : 'Add User Access' }}</span>
+                </h3>
+                <button @click="userModal.open = false" class="text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">User Name *</label>
+                    <input v-model="userModal.form.user_name" type="text" placeholder="e.g. Shuhaib Muhammed Chirakkattil"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-medium" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Gmail Address (Google Login) *</label>
+                    <input v-model="userModal.form.gmail" type="email" placeholder="name@gmail.com"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Role Permission *</label>
+                    <select v-model="userModal.form.role"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-semibold">
+                        <option value="Admin">Admin (Full Control, Admin Portal, All Staff)</option>
+                        <option value="Data_Entry">Data_Entry (Logs Attendance for Allocated Staff, No Reports)</option>
+                        <option value="Report_Only">Report_Only (All Staff Reports, Excel Export, No Entry)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button @click="userModal.open = false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition">
+                    Cancel
+                </button>
+                <button @click="saveUserModal" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md">
+                    {{ userModal.isEdit ? 'Update User' : 'Grant Access' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Staff Allocation Modal -->
+    <div v-if="allocModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700 rounded-3xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 class="font-bold text-base text-white flex items-center gap-2">
+                    <i class="fa-solid fa-sitemap text-emerald-400"></i>
+                    <span>{{ allocModal.isEdit ? 'Edit Staff Allocation' : 'Add Staff Allocation' }}</span>
+                </h3>
+                <button @click="allocModal.open = false" class="text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <!-- Managed Employee Selection -->
+                <div class="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+                    <label class="block font-bold text-emerald-400">1. Select Employee to be Managed *</label>
+                    <select @change="(e) => { const s = staffList.find(x => x.employee_code == e.target.value); if (s) { allocModal.form.employee_code = s.employee_code; allocModal.form.employee_name = s.name; } }"
+                            class="w-full bg-navy-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-medium">
+                        <option value="">-- Quick Pick from Staff Directory --</option>
+                        <option v-for="s in staffList" :key="s.employee_code" :value="s.employee_code">
+                            {{ s.name }} (Code: {{ s.employee_code }})
+                        </option>
+                    </select>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input v-model="allocModal.form.employee_code" type="text" placeholder="Employee Code"
+                               class="bg-navy-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 font-mono text-[11px]" />
+                        <input v-model="allocModal.form.employee_name" type="text" placeholder="Employee Name"
+                               class="bg-navy-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 font-medium text-[11px]" />
+                    </div>
+                </div>
+
+                <!-- Assigned Controller Selection -->
+                <div class="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+                    <label class="block font-bold text-blue-400">2. Assign to Controller / User *</label>
+                    <select @change="(e) => { const s = staffList.find(x => x.employee_code == e.target.value); if (s) { allocModal.form.allocated_to_code = s.employee_code; allocModal.form.allocated_to_name = s.name; } }"
+                            class="w-full bg-navy-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-medium">
+                        <option value="">-- Quick Pick Controller from Staff Directory --</option>
+                        <option v-for="s in staffList" :key="s.employee_code" :value="s.employee_code">
+                            {{ s.name }} (Code: {{ s.employee_code }})
+                        </option>
+                    </select>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input v-model="allocModal.form.allocated_to_code" type="text" placeholder="Allocated To Code"
+                               class="bg-navy-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 font-mono text-[11px]" />
+                        <input v-model="allocModal.form.allocated_to_name" type="text" placeholder="Allocated To Name"
+                               class="bg-navy-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 font-medium text-[11px]" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button @click="allocModal.open = false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition">
+                    Cancel
+                </button>
+                <button @click="saveAllocModal" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md">
+                    {{ allocModal.isEdit ? 'Update Allocation' : 'Save Allocation' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Location Modal -->
+    <div v-if="locModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 class="font-bold text-base text-white flex items-center gap-2">
+                    <i class="fa-solid fa-map-pin text-emerald-400"></i>
+                    <span>{{ locModal.isEdit ? 'Edit Branch Location' : 'Add Branch Location' }}</span>
+                </h3>
+                <button @click="locModal.open = false" class="text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Branch Name *</label>
+                    <input v-model="locModal.form.branch" type="text" placeholder="e.g. BARSHA"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold uppercase" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">EMR Code</label>
+                    <input v-model="locModal.form.emr" type="text" placeholder="e.g. DXB"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">City / Location</label>
+                    <input v-model="locModal.form.location" type="text" placeholder="e.g. Dubai, Barsha Branch"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button @click="locModal.open = false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition">
+                    Cancel
+                </button>
+                <button @click="saveLocModal" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md">
+                    {{ locModal.isEdit ? 'Update Branch' : 'Save Branch' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. Role Modal -->
+    <div v-if="roleModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 class="font-bold text-base text-white flex items-center gap-2">
+                    <i class="fa-solid fa-user-lock text-emerald-400"></i>
+                    <span>{{ roleModal.isEdit ? 'Edit Role Permissions' : 'Add New Role' }}</span>
+                </h3>
+                <button @click="roleModal.open = false" class="text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Role Name *</label>
+                    <input v-model="roleModal.form.role" type="text" placeholder="e.g. Supervisor"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Attendance Entry Form</label>
+                    <input v-model="roleModal.form.entry_form" type="text" placeholder="e.g. ✅ Can log attendance"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">View Reports & Breakdowns</label>
+                    <input v-model="roleModal.form.reports" type="text" placeholder="e.g. ✅ Full Access"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Download Excel Reports</label>
+                    <input v-model="roleModal.form.download_excel" type="text" placeholder="e.g. ❌ Hidden & Blocked"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button @click="roleModal.open = false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition">
+                    Cancel
+                </button>
+                <button @click="saveRoleModal" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md">
+                    {{ roleModal.isEdit ? 'Update Role' : 'Save Role' }}
+                </button>
+            </div>
+        </div>
+    </div>
 
     </template><!-- end v-if currentUser (authenticated app) -->
 

@@ -13,7 +13,7 @@ const app = createApp({
             AUTO_WO_DAYS: [4, 6] // Thursday (4) and Saturday (6)
         };
 
-        // Navigation State
+        // Navigation State: 'daily' | 'summary' | 'schedule' | 'roster' | 'admin'
         const currentTab = ref('daily');
         const loading = ref(false);
         const initialLoading = ref(false);
@@ -25,11 +25,14 @@ const app = createApp({
         const sheetConnectionStatus = ref('unconnected');
         const sheetLastSyncTime = ref('');
 
-        // Master Dynamic Data (100% EMPTY ON START - LOADED ONLY FROM GOOGLE SHEET)
+        // Master Dynamic Data (LOADED ONLY FROM GOOGLE SHEET)
         const staffList = ref([]);
         const locations = ref([]);
         const attendanceLogs = ref([]);
         const usersList = ref([]);
+        const allocationsList = ref([]);
+        const schedulesList = ref([]);
+        const rolesList = ref([]);
 
         // Authentication State (Google Sign-In) & Role Permissions
         const currentUser = ref(null);
@@ -41,6 +44,44 @@ const app = createApp({
         const isAdmin = computed(() => userRole.value === 'Admin');
         const canDataEntry = computed(() => userRole.value === 'Admin' || userRole.value === 'Data_Entry');
         const canExportReports = computed(() => userRole.value === 'Admin' || userRole.value === 'Report_Only');
+
+        // Staff Visibility based on User_Allocation sheet
+        // Admin & Report_Only see ALL staff; Data_Entry users only see their allocated staff
+        const visibleStaffList = computed(() => {
+            if (staffList.value.length === 0) return [];
+            if (isAdmin.value || userRole.value === 'Report_Only') {
+                return staffList.value;
+            }
+
+            if (!currentUser.value) return [];
+            const myEmpCode = currentUser.value.staff ? (currentUser.value.staff.employee_code || '').toString().trim() : '';
+            const myName = (currentUser.value.userName || currentUser.value.name || '').toLowerCase().trim();
+
+            // Find allocation rows where current user is the assigned controller
+            const myAllocRows = allocationsList.value.filter(al => {
+                const targetCode = (al.allocated_to_code || '').toString().trim();
+                const targetName = (al.allocated_to_name || '').toLowerCase().trim();
+                return (myEmpCode && targetCode === myEmpCode) ||
+                       (targetName && (targetName === myName || myName.includes(targetName) || targetName.includes(myName)));
+            });
+
+            if (myAllocRows.length > 0) {
+                const allowedCodes = new Set(myAllocRows.map(a => (a.employee_code || '').toString().trim()));
+                const allowedNames = new Set(myAllocRows.map(a => (a.employee_name || '').toLowerCase().trim()));
+
+                const filtered = staffList.value.filter(s =>
+                    allowedCodes.has((s.employee_code || '').toString().trim()) ||
+                    allowedNames.has((s.name || '').toLowerCase().trim())
+                );
+                return filtered.length > 0 ? filtered : staffList.value;
+            }
+
+            // Fallback: If no allocation row, show user's own profile or all
+            if (currentUser.value.staff) {
+                return [currentUser.value.staff];
+            }
+            return staffList.value;
+        });
 
         // Date Helpers (Timezone safe for UAE GMT+4)
         const getTodayLocalStr = () => {
@@ -61,6 +102,17 @@ const app = createApp({
             return `${y}-${m}-${day}`;
         };
 
+        const getAuditTimestamp = () => {
+            const d = new Date();
+            const day = String(d.getDate()).padStart(2, '0');
+            const mon = String(d.getMonth() + 1).padStart(2, '0');
+            const yr = String(d.getFullYear()).slice(-2);
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            const ss = String(d.getSeconds()).padStart(2, '0');
+            return `${day}:${mon}:${yr} ${hh}:${mm}:${ss}`;
+        };
+
         const todayStr = getTodayLocalStr();
 
         // Cutoff & Filter State
@@ -71,7 +123,7 @@ const app = createApp({
         const searchQuery = ref('');
         const statusFilter = ref('ALL');
 
-        // Smart Attendance Entry Form State (RETAINS PREVIOUS DATA FOR SEQUENTIAL ENTRY!)
+        // Smart Attendance Entry Form State
         const entryForm = ref({
             staff_id: null,
             staff_name: '',
@@ -90,11 +142,6 @@ const app = createApp({
         const staffSearchQuery = ref('');
         const showStaffDropdown = ref(false);
         const locationSearchQuery = ref('');
-        const showLocationDropdown = ref(false);
-
-        // Modals
-        const connectModal = ref(false);
-        const authModal = ref(false);
 
         // Toast Helper
         const showToast = (msg, type = 'success') => {
@@ -105,11 +152,12 @@ const app = createApp({
             }, 3500);
         };
 
-        // Filtered staff for autocomplete search
+        // Filtered staff for autocomplete search (respects user's allocation!)
         const matchedStaffList = computed(() => {
-            if (!staffSearchQuery.value) return staffList.value.slice(0, 10);
+            const baseList = visibleStaffList.value;
+            if (!staffSearchQuery.value) return baseList.slice(0, 10);
             const q = staffSearchQuery.value.toLowerCase().trim();
-            return staffList.value.filter(s =>
+            return baseList.filter(s =>
                 (s.name && s.name.toLowerCase().includes(q)) ||
                 (s.employee_code && s.employee_code.toLowerCase().includes(q)) ||
                 (s.designation && s.designation.toLowerCase().includes(q))
@@ -152,12 +200,6 @@ const app = createApp({
             }
         };
 
-        const selectLocationForEntry = (loc) => {
-            entryForm.value.location = loc.branch;
-            locationSearchQuery.value = loc.branch;
-            showLocationDropdown.value = false;
-        };
-
         // Live calculation of hours
         const updateEntryHours = () => {
             if (entryForm.value.status === 'WO' || entryForm.value.status === 'OFF' || entryForm.value.status === 'Unpaid Leave') {
@@ -181,7 +223,7 @@ const app = createApp({
             }
         };
 
-        // Selected Date Day Info (Timezone Safe)
+        // Selected Date Day Info
         const entryDateDayInfo = computed(() => {
             if (!entryForm.value.date) return { name: '', isWeekend: false };
             const parts = entryForm.value.date.split('-').map(Number);
@@ -242,7 +284,6 @@ const app = createApp({
                     }
                     if (data.users && Array.isArray(data.users)) {
                         usersList.value = data.users;
-                        // Keep current user role in sync if updated in sheet
                         if (currentUser.value && currentUser.value.email) {
                             const uMatch = usersList.value.find(u => u.gmail && u.gmail.toLowerCase().trim() === currentUser.value.email.toLowerCase().trim());
                             if (uMatch && uMatch.role) {
@@ -251,12 +292,21 @@ const app = createApp({
                             }
                         }
                     }
+                    if (data.allocations && Array.isArray(data.allocations)) {
+                        allocationsList.value = data.allocations;
+                    }
+                    if (data.schedules && Array.isArray(data.schedules)) {
+                        schedulesList.value = data.schedules;
+                    }
+                    if (data.roles && Array.isArray(data.roles)) {
+                        rolesList.value = data.roles;
+                    }
 
-                    // Auto-select logged-in user's staff record if available
+                    // Auto-select staff record if available
                     if (canDataEntry.value && !entryForm.value.staff_name && currentUser.value && currentUser.value.staff) {
                         selectStaffForEntry(currentUser.value.staff);
-                    } else if (canDataEntry.value && !entryForm.value.staff_name && staffList.value.length > 0) {
-                        selectStaffForEntry(staffList.value[0]);
+                    } else if (canDataEntry.value && !entryForm.value.staff_name && visibleStaffList.value.length > 0) {
+                        selectStaffForEntry(visibleStaffList.value[0]);
                     }
 
                     sheetConnectionStatus.value = 'connected';
@@ -264,7 +314,7 @@ const app = createApp({
                     sheetLastSyncTime.value = now;
 
                     if (!isBackground) {
-                        showToast(`Connected! Loaded ${staffList.value.length} Staff & ${locations.value.length} Locations.`);
+                        showToast(`Connected! Loaded ${staffList.value.length} Staff, ${locations.value.length} Locations & ${schedulesList.value.length} Schedules.`);
                     }
                 } else {
                     sheetConnectionStatus.value = 'error';
@@ -301,6 +351,7 @@ const app = createApp({
             }
 
             loading.value = true;
+            const updatedBy = currentUser.value ? (currentUser.value.name || currentUser.value.email) : 'User';
             const payload = {
                 action: 'log_attendance',
                 staff_id: entryForm.value.staff_id,
@@ -314,7 +365,8 @@ const app = createApp({
                 total_hours: entryForm.value.total_hours,
                 location: entryForm.value.location,
                 notes: entryForm.value.notes || '',
-                allow_update: allowUpdate
+                allow_update: allowUpdate,
+                updated_by_user: updatedBy
             };
 
             try {
@@ -450,11 +502,12 @@ const app = createApp({
             return list;
         });
 
-        // Compute Full Attendance Report & Weekly Breakdowns
+        // Compute Full Attendance Report & Weekly Breakdowns (based on visibleStaffList)
         const reportData = computed(() => {
-            if (staffList.value.length === 0) {
+            const activeStaff = visibleStaffList.value;
+            if (activeStaff.length === 0) {
                 return {
-                    cycle_label: 'No Data Loaded',
+                    cycle_label: 'No Staff Data',
                     weeks: [],
                     stats: { total_staff: 0, aggregate_hours: 0, aggregate_overtime: 0, aggregate_undertime: 0, net_aggregate_balance: 0, ot_count: 0, ut_count: 0 },
                     staff_reports: []
@@ -480,7 +533,7 @@ const app = createApp({
             let otCount = 0;
             let utCount = 0;
 
-            const staffReports = staffList.value.map(staff => {
+            const staffReports = activeStaff.map(staff => {
                 let staffMonthHours = 0;
                 let staffMonthTarget = 0;
                 let staffTotalOT = 0;
@@ -614,7 +667,7 @@ const app = createApp({
                 cycle_label: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
                 weeks,
                 stats: {
-                    total_staff: staffList.value.length,
+                    total_staff: activeStaff.length,
                     aggregate_hours: Math.round(totalAggHours * 10) / 10,
                     aggregate_overtime: Math.round(totalAggOT * 10) / 10,
                     aggregate_undertime: Math.round(totalAggUT * 10) / 10,
@@ -779,10 +832,426 @@ const app = createApp({
         };
 
         // -------------------------------------------------------------
-        // GOOGLE SIGN-IN (GOOGLE IDENTITY SERVICES) WITH LOGIN GATE
+        // BRANCH VISIT SCHEDULE MODULE
         // -------------------------------------------------------------
+        const scheduleForm = ref({
+            branch: '',
+            location: '',
+            visit_date: todayStr,
+            visit_time: '09:00',
+            allocated_to_staff: '',
+            row_index: null,
+            is_editing: false
+        });
 
-        // Render the Google Sign-In button on the login page
+        const scheduleFilterBranch = ref('ALL');
+        const scheduleFilterStaff = ref('ALL');
+        const scheduleSearchQuery = ref('');
+
+        const onScheduleBranchChange = () => {
+            if (!scheduleForm.value.branch) return;
+            const match = locations.value.find(l => l.branch === scheduleForm.value.branch);
+            if (match) {
+                scheduleForm.value.location = match.location || match.emr || '';
+            }
+        };
+
+        const filteredSchedules = computed(() => {
+            return schedulesList.value.filter(sc => {
+                if (scheduleFilterBranch.value !== 'ALL' && sc.branch !== scheduleFilterBranch.value) return false;
+                if (scheduleFilterStaff.value !== 'ALL' && sc.allocated_to_staff !== scheduleFilterStaff.value) return false;
+                if (scheduleSearchQuery.value) {
+                    const q = scheduleSearchQuery.value.toLowerCase().trim();
+                    const mBranch = (sc.branch || '').toLowerCase().includes(q);
+                    const mLoc = (sc.location || '').toLowerCase().includes(q);
+                    const mStaff = (sc.allocated_to_staff || '').toLowerCase().includes(q);
+                    if (!mBranch && !mLoc && !mStaff) return false;
+                }
+                return true;
+            }).sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || ''));
+        });
+
+        const saveSchedule = async () => {
+            if (!scheduleForm.value.branch) {
+                return showToast("Please select a Branch", "error");
+            }
+            if (!scheduleForm.value.visit_date) {
+                return showToast("Please select a Visit Date", "error");
+            }
+            if (!scheduleForm.value.allocated_to_staff) {
+                return showToast("Please select a Staff Member", "error");
+            }
+
+            const op = scheduleForm.value.is_editing ? 'edit' : 'add';
+            const payloadData = {
+                branch: scheduleForm.value.branch,
+                location: scheduleForm.value.location,
+                visit_date: scheduleForm.value.visit_date,
+                visit_time: scheduleForm.value.visit_time || '09:00',
+                allocated_to_staff: scheduleForm.value.allocated_to_staff
+            };
+
+            const success = await sendAdminCrud('Schedule', op, scheduleForm.value.row_index, payloadData);
+            if (success) {
+                scheduleForm.value.branch = '';
+                scheduleForm.value.location = '';
+                scheduleForm.value.allocated_to_staff = '';
+                scheduleForm.value.is_editing = false;
+                scheduleForm.value.row_index = null;
+            }
+        };
+
+        const editSchedule = (sc) => {
+            scheduleForm.value.branch = sc.branch;
+            scheduleForm.value.location = sc.location;
+            scheduleForm.value.visit_date = sc.visit_date;
+            scheduleForm.value.visit_time = sc.visit_time;
+            scheduleForm.value.allocated_to_staff = sc.allocated_to_staff;
+            scheduleForm.value.row_index = sc.row_index;
+            scheduleForm.value.is_editing = true;
+            const el = document.getElementById('schedule-form-card');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+
+        const deleteSchedule = async (sc) => {
+            if (!confirm(`Delete visit schedule to ${sc.branch} on ${sc.visit_date}?`)) return;
+            await sendAdminCrud('Schedule', 'delete', sc.row_index, {});
+        };
+
+        const cancelScheduleEdit = () => {
+            scheduleForm.value.branch = '';
+            scheduleForm.value.location = '';
+            scheduleForm.value.allocated_to_staff = '';
+            scheduleForm.value.is_editing = false;
+            scheduleForm.value.row_index = null;
+        };
+
+        const exportScheduleExcel = () => {
+            if (typeof XLSX === 'undefined') {
+                return showToast("Loading Excel exporter...", "info");
+            }
+            const rows = [
+                ["BRANCH VISIT SCHEDULES"],
+                [`Exported On: ${new Date().toLocaleString()}`],
+                [],
+                ["Sl", "Branch", "Location", "Visit Date", "Visit Time", "Allocated to Staff", "Updated By User", "Updated By Date"]
+            ];
+
+            filteredSchedules.value.forEach((sc, idx) => {
+                rows.push([
+                    idx + 1,
+                    sc.branch,
+                    sc.location,
+                    sc.visit_date,
+                    sc.visit_time,
+                    sc.allocated_to_staff,
+                    sc.updated_by_user,
+                    sc.updated_by_date
+                ]);
+            });
+
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(rows);
+            XLSX.utils.book_append_sheet(wb, ws, "Visit Schedule");
+            XLSX.writeFile(wb, `Branch_Visit_Schedule_${todayStr}.xlsx`);
+            showToast("Downloaded Branch Visit Schedule Excel!");
+        };
+
+        // -------------------------------------------------------------
+        // ADMIN PORTAL & CRUD ENGINE (Direct Google Sheet Updates)
+        // -------------------------------------------------------------
+        const adminActiveTab = ref('staff'); // 'staff' | 'users' | 'allocations' | 'locations' | 'roles'
+
+        // Admin Modals State
+        const staffModal = ref({
+            open: false,
+            isEdit: false,
+            rowIndex: null,
+            form: { sl_no: '', employee_code: '', name: '', designation: 'Staff', allocated_to: 'HEAD OFFICE', whatsapp: '', image_url: '', gmail: '' }
+        });
+
+        const userModal = ref({
+            open: false,
+            isEdit: false,
+            rowIndex: null,
+            form: { user_name: '', gmail: '', role: 'Data_Entry' }
+        });
+
+        const allocModal = ref({
+            open: false,
+            isEdit: false,
+            rowIndex: null,
+            form: { employee_code: '', employee_name: '', allocated_to_code: '', allocated_to_name: '' }
+        });
+
+        const locModal = ref({
+            open: false,
+            isEdit: false,
+            rowIndex: null,
+            form: { branch: '', emr: '', location: '' }
+        });
+
+        const roleModal = ref({
+            open: false,
+            isEdit: false,
+            rowIndex: null,
+            form: { role: '', entry_form: '', reports: '', download_excel: '' }
+        });
+
+        // Universal CRUD dispatcher to Google Apps Script
+        const sendAdminCrud = async (sheetName, operation, rowIndex = null, payloadData = {}) => {
+            const url = googleSheetWebAppUrl.value.trim();
+            if (!url) {
+                showToast("Google Sheet backend not connected!", "error");
+                return false;
+            }
+
+            loading.value = true;
+            const updatedBy = currentUser.value ? (currentUser.value.name || currentUser.value.email) : 'Admin';
+
+            const payload = {
+                action: 'admin_crud',
+                sheet_name: sheetName,
+                operation: operation,
+                row_index: rowIndex,
+                data: payloadData,
+                updated_by_user: updatedBy
+            };
+
+            try {
+                let resData = null;
+                try {
+                    const encoded = encodeURIComponent(JSON.stringify(payload));
+                    const res = await fetch(`${url}?action=admin_crud&payload=${encoded}`);
+                    resData = await res.json();
+                } catch(getErr) {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    resData = await res.json();
+                }
+
+                if (resData && resData.status === 'success') {
+                    await syncGoogleSheet(true);
+                    showToast(resData.message || "Operation completed successfully!");
+                    return true;
+                } else {
+                    showToast((resData && resData.message) ? resData.message : "Error executing action", "error");
+                    return false;
+                }
+            } catch(err) {
+                console.error("Admin CRUD error:", err);
+                showToast("Error communicating with Google Sheet: " + (err.message || err), "error");
+                return false;
+            } finally {
+                loading.value = false;
+            }
+        };
+
+        // Staff CRUD Handlers
+        const openAddStaffModal = () => {
+            staffModal.value = {
+                open: true,
+                isEdit: false,
+                rowIndex: null,
+                form: {
+                    sl_no: staffList.value.length + 1,
+                    employee_code: '',
+                    name: '',
+                    designation: 'Inventory Controller',
+                    allocated_to: 'DUBAI',
+                    whatsapp: '',
+                    image_url: '',
+                    gmail: ''
+                }
+            };
+        };
+
+        const openEditStaffModal = (s) => {
+            staffModal.value = {
+                open: true,
+                isEdit: true,
+                rowIndex: s.row_index,
+                form: {
+                    sl_no: s.sl_no,
+                    employee_code: s.employee_code,
+                    name: s.name,
+                    designation: s.designation,
+                    allocated_to: s.allocated_to,
+                    whatsapp: s.whatsapp,
+                    image_url: s.image_url,
+                    gmail: s.gmail || ''
+                }
+            };
+        };
+
+        const saveStaffModal = async () => {
+            if (!staffModal.value.form.name || !staffModal.value.form.employee_code) {
+                return showToast("Employee Name and Code are required", "error");
+            }
+            const op = staffModal.value.isEdit ? 'edit' : 'add';
+            const ok = await sendAdminCrud('Staff_data', op, staffModal.value.rowIndex, staffModal.value.form);
+            if (ok) staffModal.value.open = false;
+        };
+
+        const deleteStaffRecord = async (s) => {
+            if (!confirm(`Delete ${s.name} (${s.employee_code}) from Staff Directory?`)) return;
+            await sendAdminCrud('Staff_data', 'delete', s.row_index, {});
+        };
+
+        // User Access CRUD Handlers
+        const openAddUserModal = () => {
+            userModal.value = {
+                open: true,
+                isEdit: false,
+                rowIndex: null,
+                form: { user_name: '', gmail: '', role: 'Data_Entry' }
+            };
+        };
+
+        const openEditUserModal = (u) => {
+            userModal.value = {
+                open: true,
+                isEdit: true,
+                rowIndex: u.row_index,
+                form: { user_name: u.user_name, gmail: u.gmail, role: u.role }
+            };
+        };
+
+        const saveUserModal = async () => {
+            if (!userModal.value.form.gmail) {
+                return showToast("Gmail address is required", "error");
+            }
+            const op = userModal.value.isEdit ? 'edit' : 'add';
+            const ok = await sendAdminCrud('Users_Data', op, userModal.value.rowIndex, userModal.value.form);
+            if (ok) userModal.value.open = false;
+        };
+
+        const deleteUserRecord = async (u) => {
+            if (!confirm(`Delete user access for ${u.user_name || u.gmail}?`)) return;
+            await sendAdminCrud('Users_Data', 'delete', u.row_index, {});
+        };
+
+        // Staff Allocation CRUD Handlers
+        const openAddAllocModal = () => {
+            allocModal.value = {
+                open: true,
+                isEdit: false,
+                rowIndex: null,
+                form: { employee_code: '', employee_name: '', allocated_to_code: '', allocated_to_name: '' }
+            };
+        };
+
+        const openEditAllocModal = (al) => {
+            allocModal.value = {
+                open: true,
+                isEdit: true,
+                rowIndex: al.row_index,
+                form: {
+                    employee_code: al.employee_code,
+                    employee_name: al.employee_name,
+                    allocated_to_code: al.allocated_to_code,
+                    allocated_to_name: al.allocated_to_name
+                }
+            };
+        };
+
+        const onAllocStaffSelect = (staffObj) => {
+            if (!staffObj) return;
+            allocModal.value.form.employee_code = staffObj.employee_code;
+            allocModal.value.form.employee_name = staffObj.name;
+        };
+
+        const onAllocTargetSelect = (targetObj) => {
+            if (!targetObj) return;
+            allocModal.value.form.allocated_to_code = targetObj.employee_code;
+            allocModal.value.form.allocated_to_name = targetObj.name;
+        };
+
+        const saveAllocModal = async () => {
+            if (!allocModal.value.form.employee_code || !allocModal.value.form.allocated_to_code) {
+                return showToast("Both Staff and Assigned User are required", "error");
+            }
+            const op = allocModal.value.isEdit ? 'edit' : 'add';
+            const ok = await sendAdminCrud('User_Allocation', op, allocModal.value.rowIndex, allocModal.value.form);
+            if (ok) allocModal.value.open = false;
+        };
+
+        const deleteAllocRecord = async (al) => {
+            if (!confirm(`Remove allocation: ${al.employee_name} -> ${al.allocated_to_name}?`)) return;
+            await sendAdminCrud('User_Allocation', 'delete', al.row_index, {});
+        };
+
+        // Location CRUD Handlers
+        const openAddLocModal = () => {
+            locModal.value = {
+                open: true,
+                isEdit: false,
+                rowIndex: null,
+                form: { branch: '', emr: 'DXB', location: 'Dubai' }
+            };
+        };
+
+        const openEditLocModal = (l) => {
+            locModal.value = {
+                open: true,
+                isEdit: true,
+                rowIndex: l.row_index,
+                form: { branch: l.branch, emr: l.emr, location: l.location }
+            };
+        };
+
+        const saveLocModal = async () => {
+            if (!locModal.value.form.branch) {
+                return showToast("Branch name is required", "error");
+            }
+            const op = locModal.value.isEdit ? 'edit' : 'add';
+            const ok = await sendAdminCrud('Locations', op, locModal.value.rowIndex, locModal.value.form);
+            if (ok) locModal.value.open = false;
+        };
+
+        const deleteLocRecord = async (l) => {
+            if (!confirm(`Delete branch "${l.branch}"?`)) return;
+            await sendAdminCrud('Locations', 'delete', l.row_index, {});
+        };
+
+        // Roles CRUD Handlers
+        const openAddRoleModal = () => {
+            roleModal.value = {
+                open: true,
+                isEdit: false,
+                rowIndex: null,
+                form: { role: '', entry_form: '✅', reports: '✅', download_excel: '✅' }
+            };
+        };
+
+        const openEditRoleModal = (r) => {
+            roleModal.value = {
+                open: true,
+                isEdit: true,
+                rowIndex: r.row_index,
+                form: { role: r.role, entry_form: r.entry_form, reports: r.reports, download_excel: r.download_excel }
+            };
+        };
+
+        const saveRoleModal = async () => {
+            if (!roleModal.value.form.role) {
+                return showToast("Role name is required", "error");
+            }
+            const op = roleModal.value.isEdit ? 'edit' : 'add';
+            const ok = await sendAdminCrud('Roles', op, roleModal.value.rowIndex, roleModal.value.form);
+            if (ok) roleModal.value.open = false;
+        };
+
+        const deleteRoleRecord = async (r) => {
+            if (!confirm(`Delete role "${r.role}"?`)) return;
+            await sendAdminCrud('Roles', 'delete', r.row_index, {});
+        };
+
+        // -------------------------------------------------------------
+        // GOOGLE SIGN-IN (GOOGLE IDENTITY SERVICES)
+        // -------------------------------------------------------------
         const renderSignInButton = () => {
             if (!config.GOOGLE_CLIENT_ID) {
                 authError.value = 'Google Client ID not configured. Please update config.js';
@@ -800,6 +1269,7 @@ const app = createApp({
 
                         const btnEl = document.getElementById('google-signin-btn-login');
                         if (btnEl) {
+                            btnEl.innerHTML = '';
                             google.accounts.id.renderButton(btnEl, {
                                 theme: "filled_blue",
                                 size: "large",
@@ -811,15 +1281,13 @@ const app = createApp({
                     } catch (err) {
                         console.warn("Google Auth Init Warning:", err);
                     }
-                } else if (retries < 20) {
-                    // GIS script hasn't loaded yet, retry after 250ms
+                } else if (retries < 30) {
                     setTimeout(() => waitForGIS(retries + 1), 250);
                 } else {
                     authError.value = 'Google Sign-In failed to load. Please refresh the page.';
                 }
             };
 
-            // Wait for DOM to render then initialize
             nextTick(() => waitForGIS(0));
         };
 
@@ -828,7 +1296,6 @@ const app = createApp({
             authError.value = '';
 
             try {
-                // Decode JWT
                 const base64Url = response.credential.split('.')[1];
                 const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
                 const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
@@ -837,11 +1304,8 @@ const app = createApp({
 
                 const userData = JSON.parse(jsonPayload);
                 const userEmail = (userData.email || '').toLowerCase().trim();
-
-                // Check token expiry (add 24h session timeout)
                 const tokenExp = userData.exp ? userData.exp * 1000 : Date.now() + 86400000;
 
-                // STEP 1: Fetch staff list from Google Sheet to validate email
                 const url = googleSheetWebAppUrl.value.trim();
                 if (!url) {
                     authError.value = 'Google Sheet backend not configured. Contact administrator.';
@@ -858,26 +1322,20 @@ const app = createApp({
                     return;
                 }
 
-                // Update live data
-                if (data.staff && Array.isArray(data.staff)) {
-                    staffList.value = data.staff;
-                }
-                if (data.locations && Array.isArray(data.locations)) {
-                    locations.value = data.locations;
-                }
-                if (data.attendance && Array.isArray(data.attendance)) {
-                    attendanceLogs.value = data.attendance;
-                }
-                if (data.users && Array.isArray(data.users)) {
-                    usersList.value = data.users;
-                }
+                if (data.staff && Array.isArray(data.staff)) staffList.value = data.staff;
+                if (data.locations && Array.isArray(data.locations)) locations.value = data.locations;
+                if (data.attendance && Array.isArray(data.attendance)) attendanceLogs.value = data.attendance;
+                if (data.users && Array.isArray(data.users)) usersList.value = data.users;
+                if (data.allocations && Array.isArray(data.allocations)) allocationsList.value = data.allocations;
+                if (data.schedules && Array.isArray(data.schedules)) schedulesList.value = data.schedules;
+                if (data.roles && Array.isArray(data.roles)) rolesList.value = data.roles;
 
-                // STEP 2: Authenticate user using 'Users_Data' sheet
+                // Match user in Users_Data
                 let matchedUser = usersList.value.find(u =>
                     u.gmail && u.gmail.toLowerCase().trim() === userEmail
                 );
 
-                // Backward compatibility fallback if Users_Data is still being deployed
+                // Fallback check
                 if (!matchedUser && usersList.value.length === 0) {
                     const legacyStaff = staffList.value.find(s =>
                         (s.gmail || '').toLowerCase().trim() === userEmail
@@ -893,7 +1351,6 @@ const app = createApp({
 
                 if (matchedUser) {
                     const role = matchedUser.role || 'Data_Entry';
-                    // Match with staff profile if available
                     const matchedStaff = staffList.value.find(s =>
                         s.name && matchedUser.user_name &&
                         s.name.toLowerCase().trim() === matchedUser.user_name.toLowerCase().trim()
@@ -908,25 +1365,23 @@ const app = createApp({
                         staff: matchedStaff || null,
                         exp: tokenExp
                     };
+
                     localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
                     sheetConnectionStatus.value = 'connected';
                     sheetLastSyncTime.value = new Date().toLocaleTimeString();
 
-                    // If user has data entry rights, auto-select their staff record
                     if (canDataEntry.value && matchedStaff) {
                         selectStaffForEntry(matchedStaff);
-                    } else if (canDataEntry.value && staffList.value.length > 0 && !entryForm.value.staff_name) {
-                        selectStaffForEntry(staffList.value[0]);
+                    } else if (canDataEntry.value && visibleStaffList.value.length > 0 && !entryForm.value.staff_name) {
+                        selectStaffForEntry(visibleStaffList.value[0]);
                     }
 
-                    // Default tab for Report_Only
                     if (role === 'Report_Only') {
                         currentTab.value = 'summary';
                     }
 
                     showToast(`Welcome, ${userData.name}! Logged in as ${role === 'Data_Entry' ? 'Data Entry' : (role === 'Report_Only' ? 'Report Only' : 'Admin')}.`);
                 } else {
-                    // NOT authorized in Users_Data
                     authError.value = `Access Denied: ${userEmail} is not registered in Users_Data sheet. Please contact your administrator to grant access.`;
                     localStorage.removeItem('attendance_auth_user');
                     currentUser.value = null;
@@ -944,7 +1399,6 @@ const app = createApp({
             }
         };
 
-        // Try to restore session from localStorage
         const tryRestoreSession = async () => {
             const savedUser = localStorage.getItem('attendance_auth_user');
             if (!savedUser) return false;
@@ -952,17 +1406,14 @@ const app = createApp({
             try {
                 const userData = JSON.parse(savedUser);
 
-                // Check session expiry (24h from login)
                 if (userData.exp && Date.now() > userData.exp) {
                     localStorage.removeItem('attendance_auth_user');
                     return false;
                 }
 
-                // Temporarily set user to show the app
                 currentUser.value = userData;
                 initialLoading.value = true;
 
-                // Validate by re-fetching staff data
                 const url = googleSheetWebAppUrl.value.trim();
                 if (!url) {
                     currentUser.value = null;
@@ -975,26 +1426,19 @@ const app = createApp({
                 const data = await res.json();
 
                 if (data.status === 'success') {
-                    if (data.staff && Array.isArray(data.staff)) {
-                        staffList.value = data.staff;
-                    }
-                    if (data.locations && Array.isArray(data.locations)) {
-                        locations.value = data.locations;
-                    }
-                    if (data.attendance && Array.isArray(data.attendance)) {
-                        attendanceLogs.value = data.attendance;
-                    }
-                    if (data.users && Array.isArray(data.users)) {
-                        usersList.value = data.users;
-                    }
+                    if (data.staff && Array.isArray(data.staff)) staffList.value = data.staff;
+                    if (data.locations && Array.isArray(data.locations)) locations.value = data.locations;
+                    if (data.attendance && Array.isArray(data.attendance)) attendanceLogs.value = data.attendance;
+                    if (data.users && Array.isArray(data.users)) usersList.value = data.users;
+                    if (data.allocations && Array.isArray(data.allocations)) allocationsList.value = data.allocations;
+                    if (data.schedules && Array.isArray(data.schedules)) schedulesList.value = data.schedules;
+                    if (data.roles && Array.isArray(data.roles)) rolesList.value = data.roles;
 
-                    // Re-verify email is still authorized in Users_Data
                     const userEmail = (userData.email || '').toLowerCase().trim();
                     let matchedUser = usersList.value.find(u =>
                         u.gmail && u.gmail.toLowerCase().trim() === userEmail
                     );
 
-                    // Fallback
                     if (!matchedUser && usersList.value.length === 0) {
                         const legacyStaff = staffList.value.find(s =>
                             (s.gmail || '').toLowerCase().trim() === userEmail
@@ -1030,7 +1474,6 @@ const app = createApp({
                         initialLoading.value = false;
                         return true;
                     } else {
-                        // User was removed from Users_Data
                         currentUser.value = null;
                         localStorage.removeItem('attendance_auth_user');
                         staffList.value = [];
@@ -1041,7 +1484,6 @@ const app = createApp({
                         return false;
                     }
                 } else {
-                    // Could not connect, still allow cached session
                     initialLoading.value = false;
                     return true;
                 }
@@ -1058,17 +1500,18 @@ const app = createApp({
         const signOut = () => {
             currentUser.value = null;
             localStorage.removeItem('attendance_auth_user');
-            // Clear all sensitive data from memory
             staffList.value = [];
             locations.value = [];
             attendanceLogs.value = [];
             usersList.value = [];
+            allocationsList.value = [];
+            schedulesList.value = [];
+            rolesList.value = [];
             entryForm.value.staff_name = '';
             entryForm.value.employee_code = '';
             entryForm.value.staff_id = null;
             staffSearchQuery.value = '';
             showToast("Signed out successfully.");
-            // Re-render login button after DOM updates
             nextTick(() => renderSignInButton());
         };
 
@@ -1081,7 +1524,6 @@ const app = createApp({
         // AUTO-REFRESH EVERY 1 HOUR & INITIALIZATION
         // -------------------------------------------------------------
         onMounted(async () => {
-            // Determine active cycle for today
             const today = new Date();
             let cYear = today.getFullYear();
             let cMonth = today.getMonth() + 1;
@@ -1093,19 +1535,15 @@ const app = createApp({
             selectedMonth.value = cMonth;
             selectedCycle.value = `${cYear}-${cMonth}`;
 
-            // Try to restore saved session (login persisted in localStorage)
             const restored = await tryRestoreSession();
-
             if (!restored) {
-                // No valid session — show login page and render Google Sign-In button
                 renderSignInButton();
             }
 
-            // AUTO-RELOAD EVERY 1 HOUR (only when authenticated)
             const refreshIntervalMs = (config.AUTO_REFRESH_MINUTES || 60) * 60 * 1000;
             setInterval(() => {
                 if (currentUser.value && googleSheetWebAppUrl.value) {
-                    console.log("1-Hour Auto-Refresh: Refreshing attendance data...");
+                    console.log("1-Hour Auto-Refresh: Refreshing attendance & schedules...");
                     syncGoogleSheet(true);
                 }
             }, refreshIntervalMs);
@@ -1121,8 +1559,6 @@ const app = createApp({
             googleSheetWebAppUrl,
             sheetConnectionStatus,
             sheetLastSyncTime,
-            connectModal,
-            authModal,
             currentUser,
             userRole,
             isAdmin,
@@ -1142,7 +1578,11 @@ const app = createApp({
             searchQuery,
             statusFilter,
             staffList,
+            visibleStaffList,
             usersList,
+            allocationsList,
+            schedulesList,
+            rolesList,
             reportData,
             selectedStaffReport,
             filteredStaffReports,
@@ -1151,11 +1591,9 @@ const app = createApp({
             showStaffDropdown,
             matchedStaffList,
             locationSearchQuery,
-            showLocationDropdown,
             matchedLocations,
             entryDateDayInfo,
             selectStaffForEntry,
-            selectLocationForEntry,
             quickLogDate,
             updateEntryHours,
             submitAttendanceEntry,
@@ -1163,7 +1601,48 @@ const app = createApp({
             onCycleChange,
             exportExcel,
             printReport,
-            openWhatsApp
+            openWhatsApp,
+            // Schedule Module
+            scheduleForm,
+            scheduleFilterBranch,
+            scheduleFilterStaff,
+            scheduleSearchQuery,
+            filteredSchedules,
+            onScheduleBranchChange,
+            saveSchedule,
+            editSchedule,
+            deleteSchedule,
+            cancelScheduleEdit,
+            exportScheduleExcel,
+            // Admin Portal
+            adminActiveTab,
+            staffModal,
+            userModal,
+            allocModal,
+            locModal,
+            roleModal,
+            openAddStaffModal,
+            openEditStaffModal,
+            saveStaffModal,
+            deleteStaffRecord,
+            openAddUserModal,
+            openEditUserModal,
+            saveUserModal,
+            deleteUserRecord,
+            openAddAllocModal,
+            openEditAllocModal,
+            onAllocStaffSelect,
+            onAllocTargetSelect,
+            saveAllocModal,
+            deleteAllocRecord,
+            openAddLocModal,
+            openEditLocModal,
+            saveLocModal,
+            deleteLocRecord,
+            openAddRoleModal,
+            openEditRoleModal,
+            saveRoleModal,
+            deleteRoleRecord
         };
     }
 });
