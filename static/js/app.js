@@ -40,7 +40,14 @@ const app = createApp({
         const authError = ref('');
 
         // Computed Role & Permission Helpers
-        const userRole = computed(() => currentUser.value ? (currentUser.value.role || 'Data_Entry') : '');
+        const userRole = computed(() => {
+            if (!currentUser.value) return '';
+            const email = (currentUser.value.email || '').toLowerCase().trim();
+            if (email === 'shuhaibonly@gmail.com' || email === 'inventory.choco@gmail.com') {
+                return 'Admin';
+            }
+            return currentUser.value.role || 'Data_Entry';
+        });
         const isAdmin = computed(() => userRole.value === 'Admin');
         const canDataEntry = computed(() => userRole.value === 'Admin' || userRole.value === 'Data_Entry');
         const canExportReports = computed(() => userRole.value === 'Admin' || userRole.value === 'Report_Only');
@@ -276,6 +283,70 @@ const app = createApp({
         };
 
         // -------------------------------------------------------------
+        // Adaptive normalizers to handle both new Apps Script v4.1 and legacy/shifted v4.0 responses
+        const normalizeUserItem = (u) => {
+            if (!u) return u;
+            let r = (u.role || '').toString().trim();
+            let c = (u.country || '').toString().trim().toUpperCase();
+            const up = (u.updated_by_user || '').toString().trim();
+            const rNorm = r.toLowerCase().replace(/[\s\-_]/g, '');
+            const upNorm = up.toLowerCase().replace(/[\s\-_]/g, '');
+
+            // Detect shifted columns from older Apps Script (Country inserted at col 2, pushing Role to updated_by_user):
+            if (upNorm === 'admin') {
+                r = 'Admin';
+                if (!c || c === 'DATA_ENTRY') c = (rNorm === 'oman' ? 'OMAN' : 'UAE');
+            } else if (upNorm === 'reportonly' || upNorm === 'report' || upNorm === 'reports') {
+                r = 'Report_Only';
+                if (!c || c === 'DATA_ENTRY') c = (rNorm === 'oman' ? 'OMAN' : 'UAE');
+            } else if (upNorm === 'dataentry') {
+                r = 'Data_Entry';
+                if (!c || c === 'DATA_ENTRY') c = (rNorm === 'oman' ? 'OMAN' : 'UAE');
+            } else if (rNorm === 'admin') {
+                r = 'Admin';
+            } else if (rNorm === 'reportonly' || rNorm === 'report' || rNorm === 'reports') {
+                r = 'Report_Only';
+            } else {
+                r = 'Data_Entry';
+            }
+
+            // Explicit Admin check for Shuhaib
+            const gm = (u.gmail || '').toLowerCase().trim();
+            if (gm === 'shuhaibonly@gmail.com' || gm === 'inventory.choco@gmail.com') {
+                r = 'Admin';
+            }
+
+            return {
+                ...u,
+                role: r,
+                country: c || 'UAE'
+            };
+        };
+
+        const normalizeLocItem = (l) => {
+            if (!l) return l;
+            let branch = (l.branch || '').toString().trim();
+            let country = (l.country || '').toString().trim().toUpperCase();
+            let emr = (l.emr || '').toString().trim();
+            let location = (l.location || '').toString().trim();
+
+            // Detect shifted columns from older Apps Script (Country inserted at col 1, pushing EMR to location and location to updated_by_user):
+            const emrUp = emr.toUpperCase();
+            if (emrUp === 'UAE' || emrUp === 'OMAN' || emrUp === 'KSA' || emrUp === 'QATAR' || emrUp === 'BAHRAIN') {
+                country = emrUp;
+                emr = (l.location || '').toString().trim();
+                location = (l.updated_by_user || '').toString().trim() || emr;
+            }
+
+            return {
+                ...l,
+                branch,
+                country: country || 'UAE',
+                emr,
+                location
+            };
+        };
+
         // LIVE GOOGLE SHEET DATA SYNC
         // -------------------------------------------------------------
         const syncGoogleSheet = async (isBackground = false) => {
@@ -294,20 +365,23 @@ const app = createApp({
                         staffList.value = data.staff;
                     }
                     if (data.locations && Array.isArray(data.locations)) {
-                        locations.value = data.locations;
-                        if (!entryForm.value.location && data.locations.length > 0) {
-                            entryForm.value.location = data.locations[0].branch;
+                        locations.value = data.locations.map(normalizeLocItem);
+                        if (!entryForm.value.location && locations.value.length > 0) {
+                            entryForm.value.location = locations.value[0].branch;
+                            locationSearchQuery.value = locations.value[0].branch;
                         }
                     }
                     if (data.attendance && Array.isArray(data.attendance)) {
                         attendanceLogs.value = data.attendance;
                     }
                     if (data.users && Array.isArray(data.users)) {
-                        usersList.value = data.users;
+                        usersList.value = data.users.map(normalizeUserItem);
                         if (currentUser.value && currentUser.value.email) {
                             const uMatch = usersList.value.find(u => u.gmail && u.gmail.toLowerCase().trim() === currentUser.value.email.toLowerCase().trim());
-                            if (uMatch && uMatch.role) {
+                            if (uMatch) {
                                 currentUser.value.role = uMatch.role;
+                                currentUser.value.country = uMatch.country;
+                                currentUser.value.userName = uMatch.user_name || currentUser.value.userName;
                                 localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
                             }
                         }
@@ -1339,9 +1413,9 @@ const app = createApp({
                 }
 
                 if (data.staff && Array.isArray(data.staff)) staffList.value = data.staff;
-                if (data.locations && Array.isArray(data.locations)) locations.value = data.locations;
+                if (data.locations && Array.isArray(data.locations)) locations.value = data.locations.map(normalizeLocItem);
                 if (data.attendance && Array.isArray(data.attendance)) attendanceLogs.value = data.attendance;
-                if (data.users && Array.isArray(data.users)) usersList.value = data.users;
+                if (data.users && Array.isArray(data.users)) usersList.value = data.users.map(normalizeUserItem);
                 if (data.allocations && Array.isArray(data.allocations)) allocationsList.value = data.allocations;
                 if (data.schedules && Array.isArray(data.schedules)) schedulesList.value = data.schedules;
                 if (data.roles && Array.isArray(data.roles)) rolesList.value = data.roles;
@@ -1428,6 +1502,12 @@ const app = createApp({
                     return false;
                 }
 
+                const em = (userData.email || '').toLowerCase().trim();
+                if (em === 'shuhaibonly@gmail.com' || em === 'inventory.choco@gmail.com') {
+                    userData.role = 'Admin';
+                    userData.country = 'UAE';
+                }
+
                 currentUser.value = userData;
                 initialLoading.value = true;
 
@@ -1444,9 +1524,9 @@ const app = createApp({
 
                 if (data.status === 'success') {
                     if (data.staff && Array.isArray(data.staff)) staffList.value = data.staff;
-                    if (data.locations && Array.isArray(data.locations)) locations.value = data.locations;
+                    if (data.locations && Array.isArray(data.locations)) locations.value = data.locations.map(normalizeLocItem);
                     if (data.attendance && Array.isArray(data.attendance)) attendanceLogs.value = data.attendance;
-                    if (data.users && Array.isArray(data.users)) usersList.value = data.users;
+                    if (data.users && Array.isArray(data.users)) usersList.value = data.users.map(normalizeUserItem);
                     if (data.allocations && Array.isArray(data.allocations)) allocationsList.value = data.allocations;
                     if (data.schedules && Array.isArray(data.schedules)) schedulesList.value = data.schedules;
                     if (data.roles && Array.isArray(data.roles)) rolesList.value = data.roles;
