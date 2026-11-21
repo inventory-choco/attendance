@@ -44,6 +44,10 @@ const app = createApp({
         const isAdmin = computed(() => userRole.value === 'Admin');
         const canDataEntry = computed(() => userRole.value === 'Admin' || userRole.value === 'Data_Entry');
         const canExportReports = computed(() => userRole.value === 'Admin' || userRole.value === 'Report_Only');
+        const userCountry = computed(() => {
+            if (!currentUser.value) return '';
+            return (currentUser.value.country || '').toUpperCase().trim();
+        });
 
         // Staff Visibility based on User_Allocation sheet
         // Admin & Report_Only see ALL staff; Data_Entry users only see their allocated staff
@@ -142,6 +146,7 @@ const app = createApp({
         const staffSearchQuery = ref('');
         const showStaffDropdown = ref(false);
         const locationSearchQuery = ref('');
+        const showLocationDropdown = ref(false);
 
         // Toast Helper
         const showToast = (msg, type = 'success') => {
@@ -152,32 +157,37 @@ const app = createApp({
             }, 3500);
         };
 
-        // Filtered staff for autocomplete search (respects user's allocation!)
+        // Filtered staff with smart multi-word in-between substring search (respects user's allocation!)
         const matchedStaffList = computed(() => {
             const baseList = visibleStaffList.value;
             if (!staffSearchQuery.value) return baseList.slice(0, 10);
             const q = staffSearchQuery.value.toLowerCase().trim();
-            return baseList.filter(s =>
-                (s.name && s.name.toLowerCase().includes(q)) ||
-                (s.employee_code && s.employee_code.toLowerCase().includes(q)) ||
-                (s.designation && s.designation.toLowerCase().includes(q))
-            ).slice(0, 12);
+            const tokens = q.split(/\s+/).filter(Boolean);
+            return baseList.filter(s => {
+                const haystack = `${s.name || ''} ${s.employee_code || ''} ${s.designation || ''} ${s.allocated_to || ''}`.toLowerCase();
+                return tokens.every(token => haystack.includes(token));
+            }).slice(0, 15);
         });
 
-        // Alphabetically sorted locations list from Locations sheet
+        // Alphabetically sorted locations list from Locations sheet (filtered by allocated Country for non-admins)
         const sortedLocations = computed(() => {
-            return [...locations.value].sort((a, b) => (a.branch || '').localeCompare(b.branch || ''));
+            let list = locations.value;
+            if (!isAdmin.value && userCountry.value && userCountry.value !== 'ALL') {
+                list = list.filter(loc => (loc.country || '').trim().toUpperCase() === userCountry.value);
+            }
+            return [...list].sort((a, b) => (a.branch || '').localeCompare(b.branch || ''));
         });
 
-        // Filtered locations for smart branch selector
+        // Filtered locations with smart multi-word in-between substring search (e.g. typing "city" finds "Chocolala Al Saadah City Mall Salalah")
         const matchedLocations = computed(() => {
-            if (!locationSearchQuery.value) return sortedLocations.value;
+            const baseList = sortedLocations.value;
+            if (!locationSearchQuery.value) return baseList;
             const q = locationSearchQuery.value.toLowerCase().trim();
-            return sortedLocations.value.filter(loc =>
-                (loc.branch && loc.branch.toLowerCase().includes(q)) ||
-                (loc.emr && loc.emr.toLowerCase().includes(q)) ||
-                (loc.location && loc.location.toLowerCase().includes(q))
-            );
+            const tokens = q.split(/\s+/).filter(Boolean);
+            return baseList.filter(loc => {
+                const haystack = `${loc.branch || ''} ${loc.country || ''} ${loc.emr || ''} ${loc.location || ''}`.toLowerCase();
+                return tokens.every(token => haystack.includes(token));
+            });
         });
 
         // Autocomplete selections
@@ -189,15 +199,25 @@ const app = createApp({
             showStaffDropdown.value = false;
 
             if (s.allocated_to) {
-                const exactMatch = locations.value.find(l => (l.branch || '').toLowerCase() === s.allocated_to.toLowerCase());
+                const exactMatch = sortedLocations.value.find(l => (l.branch || '').toLowerCase() === s.allocated_to.toLowerCase());
                 if (exactMatch) {
                     entryForm.value.location = exactMatch.branch;
-                } else if (!entryForm.value.location && locations.value.length > 0) {
-                    entryForm.value.location = locations.value[0].branch;
+                    locationSearchQuery.value = exactMatch.branch;
+                } else if (!entryForm.value.location && sortedLocations.value.length > 0) {
+                    entryForm.value.location = sortedLocations.value[0].branch;
+                    locationSearchQuery.value = sortedLocations.value[0].branch;
                 }
-            } else if (!entryForm.value.location && locations.value.length > 0) {
-                entryForm.value.location = locations.value[0].branch;
+            } else if (!entryForm.value.location && sortedLocations.value.length > 0) {
+                entryForm.value.location = sortedLocations.value[0].branch;
+                locationSearchQuery.value = sortedLocations.value[0].branch;
             }
+        };
+
+        const selectLocationForEntry = (loc) => {
+            if (!loc) return;
+            entryForm.value.location = loc.branch;
+            locationSearchQuery.value = loc.branch;
+            showLocationDropdown.value = false;
         };
 
         // Live calculation of hours
@@ -707,11 +727,9 @@ const app = createApp({
                     if (staffAlloc !== sel && !workedAtBranch) return false;
                 }
                 if (searchQuery.value) {
-                    const q = searchQuery.value.toLowerCase().trim();
-                    const mName = s.name.toLowerCase().includes(q);
-                    const mCode = s.employee_code.toLowerCase().includes(q);
-                    const mDesig = s.designation.toLowerCase().includes(q);
-                    if (!mName && !mCode && !mDesig) return false;
+                    const tokens = searchQuery.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+                    const haystack = `${s.name || ''} ${s.employee_code || ''} ${s.allocated_to || ''} ${s.designation || ''}`.toLowerCase();
+                    if (!tokens.every(token => haystack.includes(token))) return false;
                 }
                 if (statusFilter.value === 'OVERTIME' && s.net_monthly_balance <= 0) return false;
                 if (statusFilter.value === 'UNDERTIME' && s.net_monthly_balance >= 0) return false;
@@ -861,11 +879,9 @@ const app = createApp({
                 if (scheduleFilterBranch.value !== 'ALL' && sc.branch !== scheduleFilterBranch.value) return false;
                 if (scheduleFilterStaff.value !== 'ALL' && sc.allocated_to_staff !== scheduleFilterStaff.value) return false;
                 if (scheduleSearchQuery.value) {
-                    const q = scheduleSearchQuery.value.toLowerCase().trim();
-                    const mBranch = (sc.branch || '').toLowerCase().includes(q);
-                    const mLoc = (sc.location || '').toLowerCase().includes(q);
-                    const mStaff = (sc.allocated_to_staff || '').toLowerCase().includes(q);
-                    if (!mBranch && !mLoc && !mStaff) return false;
+                    const tokens = scheduleSearchQuery.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+                    const haystack = `${sc.branch || ''} ${sc.location || ''} ${sc.allocated_to_staff || ''} ${sc.visit_date || ''} ${sc.updated_by_user || ''}`.toLowerCase();
+                    if (!tokens.every(token => haystack.includes(token))) return false;
                 }
                 return true;
             }).sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || ''));
@@ -974,7 +990,7 @@ const app = createApp({
             open: false,
             isEdit: false,
             rowIndex: null,
-            form: { user_name: '', gmail: '', role: 'Data_Entry' }
+            form: { user_name: '', gmail: '', country: 'UAE', role: 'Data_Entry' }
         });
 
         const allocModal = ref({
@@ -988,7 +1004,7 @@ const app = createApp({
             open: false,
             isEdit: false,
             rowIndex: null,
-            form: { branch: '', emr: '', location: '' }
+            form: { branch: '', country: 'UAE', emr: '', location: '' }
         });
 
         const roleModal = ref({
@@ -1106,7 +1122,7 @@ const app = createApp({
                 open: true,
                 isEdit: false,
                 rowIndex: null,
-                form: { user_name: '', gmail: '', role: 'Data_Entry' }
+                form: { user_name: '', gmail: '', country: 'UAE', role: 'Data_Entry' }
             };
         };
 
@@ -1115,7 +1131,7 @@ const app = createApp({
                 open: true,
                 isEdit: true,
                 rowIndex: u.row_index,
-                form: { user_name: u.user_name, gmail: u.gmail, role: u.role }
+                form: { user_name: u.user_name, gmail: u.gmail, country: u.country || 'UAE', role: u.role }
             };
         };
 
@@ -1189,7 +1205,7 @@ const app = createApp({
                 open: true,
                 isEdit: false,
                 rowIndex: null,
-                form: { branch: '', emr: 'DXB', location: 'Dubai' }
+                form: { branch: '', country: 'UAE', emr: 'DXB', location: 'Dubai' }
             };
         };
 
@@ -1198,7 +1214,7 @@ const app = createApp({
                 open: true,
                 isEdit: true,
                 rowIndex: l.row_index,
-                form: { branch: l.branch, emr: l.emr, location: l.location }
+                form: { branch: l.branch, country: l.country || 'UAE', emr: l.emr, location: l.location }
             };
         };
 
@@ -1362,6 +1378,7 @@ const app = createApp({
                         email: userEmail,
                         picture: userData.picture,
                         role: role,
+                        country: (matchedUser.country || 'UAE').toUpperCase().trim(),
                         staff: matchedStaff || null,
                         exp: tokenExp
                     };
@@ -1461,6 +1478,7 @@ const app = createApp({
 
                         currentUser.value.role = role;
                         currentUser.value.userName = matchedUser.user_name || userData.userName;
+                        currentUser.value.country = (matchedUser.country || 'UAE').toUpperCase().trim();
                         currentUser.value.staff = matchedStaff || userData.staff || null;
 
                         localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
@@ -1602,6 +1620,9 @@ const app = createApp({
             exportExcel,
             printReport,
             openWhatsApp,
+            userCountry,
+            showLocationDropdown,
+            selectLocationForEntry,
             // Schedule Module
             scheduleForm,
             scheduleFilterBranch,

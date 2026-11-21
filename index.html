@@ -160,6 +160,9 @@
                                       :class="userRole === 'Admin' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : (userRole === 'Data_Entry' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' : 'bg-purple-500/20 text-purple-300 border border-purple-500/30')">
                                     {{ userRole === 'Data_Entry' ? 'Data Entry' : (userRole === 'Report_Only' ? 'Report Only' : 'Admin') }}
                                 </span>
+                                <span v-if="userCountry" class="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider bg-slate-800 text-slate-300 border border-slate-700">
+                                    {{ userCountry }}
+                                </span>
                             </div>
                             <div class="text-slate-400 truncate max-w-[140px]">{{ currentUser.email }}</div>
                         </div>
@@ -365,51 +368,80 @@
                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none" />
                 </div>
 
-                <!-- 8. Branch Location from Locations Sheet (All Branches) -->
+                <!-- 8. Smart Branch Location Selector (Matches ANY word in between, filtered by Country for non-admin) -->
                 <div class="relative" :class="entryForm.status === 'Present' ? '' : 'sm:col-span-2'">
                     <div class="flex items-center justify-between mb-1.5">
                         <label class="block font-semibold text-slate-300">
                             Branch Location <span class="text-emerald-400">*</span>
                         </label>
-                        <span class="text-[10px] text-emerald-400 font-mono font-semibold">
-                            {{ locations.length }} Branches Available
+                        <span class="text-[10px] font-mono font-semibold" :class="isAdmin ? 'text-amber-400' : 'text-emerald-400'">
+                            {{ sortedLocations.length }} Branches ({{ isAdmin ? 'All Countries' : (userCountry || 'UAE') }})
                         </span>
                     </div>
 
-                    <!-- Primary Branch Select Dropdown (Lists All Branches from Sheet: Locations) -->
+                    <!-- Smart Search Input Box -->
                     <div class="relative">
                         <i class="fa-solid fa-location-dot absolute left-3 top-3 text-slate-500 text-xs pointer-events-none"></i>
-                        <select v-model="entryForm.location"
-                                class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-8 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-semibold cursor-pointer appearance-none">
-                            <option value="" disabled>-- Select Branch (All {{ locations.length }} from Locations Sheet) --</option>
-                            <option v-for="loc in sortedLocations" :key="loc.branch" :value="loc.branch">
-                                {{ loc.branch }} {{ (loc.location || loc.emr) ? `(${loc.location || loc.emr})` : '' }}
-                            </option>
-                        </select>
-                        <i class="fa-solid fa-chevron-down absolute right-3 top-3.5 text-slate-500 text-xs pointer-events-none"></i>
+                        <input type="text"
+                               v-model="locationSearchQuery"
+                               @focus="showLocationDropdown = true"
+                               placeholder="Type any word (e.g. City, Hamra, Salalah, Barsha)..."
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-16 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium" />
+
+                        <!-- Right control buttons: Clear and Dropdown Toggle -->
+                        <div class="absolute right-2 top-2 flex items-center gap-1.5">
+                            <button v-if="locationSearchQuery"
+                                    type="button"
+                                    @click="locationSearchQuery = ''; showLocationDropdown = true"
+                                    class="text-slate-500 hover:text-slate-300 p-1 text-xs" title="Clear Search">
+                                <i class="fa-solid fa-circle-xmark"></i>
+                            </button>
+                            <button type="button"
+                                    @click="showLocationDropdown = !showLocationDropdown"
+                                    class="text-slate-500 hover:text-slate-300 p-1 text-xs" title="Toggle Branch List">
+                                <i class="fa-solid fa-chevron-down text-[10px]" :class="{ 'rotate-180': showLocationDropdown }"></i>
+                            </button>
+                        </div>
                     </div>
 
-                    <!-- Quick Filter Search Box (Filters the 43 branches for fast typing) -->
-                    <div class="mt-1.5 relative">
-                        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2 text-[10px] text-slate-500"></i>
-                        <input v-model="locationSearchQuery"
-                               type="text"
-                               :placeholder="'Filter ' + locations.length + ' branches (e.g. Barsha, Hamra, RAK)...'"
-                               class="w-full bg-slate-950/70 border border-slate-800 rounded-lg pl-7 pr-7 py-1 text-[11px] text-slate-200 placeholder-slate-500 focus:border-emerald-500 focus:outline-none font-medium" />
-                        <button v-if="locationSearchQuery" @click="locationSearchQuery = ''" class="absolute right-2 top-1.5 text-slate-500 hover:text-slate-300 text-[10px]">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
+                    <!-- Selected Branch Indicator Pill -->
+                    <div v-if="entryForm.location" class="mt-1 flex items-center justify-between text-[11px] text-slate-400 px-1">
+                        <span>Selected: <strong class="text-emerald-400 font-semibold">{{ entryForm.location }}</strong></span>
+                        <span v-if="entryForm.location !== locationSearchQuery"
+                              @click="locationSearchQuery = entryForm.location"
+                              class="text-[10px] text-slate-500 hover:text-slate-300 cursor-pointer underline">
+                            Reset filter
+                        </span>
                     </div>
 
-                    <!-- Search Match Suggestions (Click to pick instantly) -->
-                    <div v-if="locationSearchQuery && matchedLocations.length > 0"
-                         class="mt-1 p-1.5 bg-navy-950 border border-slate-700 rounded-xl shadow-2xl max-h-44 overflow-y-auto space-y-1 z-30 relative">
+                    <!-- Smart Dropdown Menu (Any word substring match) -->
+                    <div v-if="showLocationDropdown" @click="showLocationDropdown = false" class="fixed inset-0 z-20"></div>
+                    <div v-if="showLocationDropdown"
+                         class="absolute left-0 right-0 mt-1 bg-navy-900 border border-slate-700 rounded-xl shadow-2xl z-30 max-h-60 overflow-y-auto divide-y divide-slate-800">
                         <div v-for="loc in matchedLocations" :key="loc.branch"
-                             @click="entryForm.location = loc.branch; locationSearchQuery = ''"
-                             class="p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer flex items-center justify-between text-xs transition"
-                             :class="entryForm.location === loc.branch ? 'bg-emerald-950/60 text-emerald-400 font-bold border border-emerald-800/80' : 'text-slate-200'">
-                            <span class="truncate font-semibold">{{ loc.branch }}</span>
-                            <span class="text-[10px] text-slate-400 ml-2 flex-shrink-0">{{ loc.emr }} • {{ loc.location }}</span>
+                             @click="selectLocationForEntry(loc)"
+                             class="p-2.5 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between transition"
+                             :class="entryForm.location === loc.branch ? 'bg-emerald-950/50 border-l-2 border-emerald-500' : ''">
+                            <div>
+                                <div class="font-bold text-slate-100 flex items-center gap-2">
+                                    <span>{{ loc.branch }}</span>
+                                    <span v-if="loc.country" class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold uppercase tracking-wider"
+                                          :class="loc.country === 'OMAN' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'">
+                                        {{ loc.country }}
+                                    </span>
+                                </div>
+                                <div class="text-[10px] text-slate-400 mt-0.5">
+                                    {{ loc.location || loc.emr || '---' }} <span v-if="loc.emr && loc.location">• {{ loc.emr }}</span>
+                                </div>
+                            </div>
+                            <i v-if="entryForm.location === loc.branch" class="fa-solid fa-check text-emerald-400 text-xs"></i>
+                        </div>
+
+                        <!-- Empty search state -->
+                        <div v-if="matchedLocations.length === 0" class="p-4 text-center text-slate-400 text-xs">
+                            <i class="fa-solid fa-magnifying-glass text-slate-600 text-base mb-1"></i>
+                            <div>No branch matching "<strong>{{ locationSearchQuery }}</strong>" in {{ isAdmin ? 'all branches' : (userCountry || 'allocated country') }}.</div>
+                            <div class="text-[10px] text-slate-500 mt-1">Try another keyword (e.g. City, Mall, Hamra, Salalah, Barsha)</div>
                         </div>
                     </div>
                 </div>
@@ -1188,6 +1220,7 @@
                                 <tr>
                                     <th class="py-3 px-4">User Name</th>
                                     <th class="py-3 px-4">Gmail Address</th>
+                                    <th class="py-3 px-4">Country</th>
                                     <th class="py-3 px-4">Role</th>
                                     <th class="py-3 px-4">Updated By</th>
                                     <th class="py-3 px-4">Audit Date</th>
@@ -1198,6 +1231,12 @@
                                 <tr v-for="u in usersList" :key="u.gmail" class="hover:bg-slate-800/40 transition">
                                     <td class="py-3 px-4 font-bold text-slate-200">{{ u.user_name }}</td>
                                     <td class="py-3 px-4 font-mono text-slate-300">{{ u.gmail }}</td>
+                                    <td class="py-3 px-4">
+                                        <span class="px-2 py-0.5 rounded font-mono font-bold text-[10px] uppercase border"
+                                              :class="u.country === 'OMAN' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'">
+                                            {{ u.country || 'UAE' }}
+                                        </span>
+                                    </td>
                                     <td class="py-3 px-4">
                                         <span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border"
                                               :class="u.role === 'Admin' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' : (u.role === 'Data_Entry' ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' : 'bg-purple-500/10 text-purple-300 border-purple-500/30')">
@@ -1307,6 +1346,7 @@
                             <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                                 <tr>
                                     <th class="py-3 px-4">Branch Name</th>
+                                    <th class="py-3 px-4">Country</th>
                                     <th class="py-3 px-4">EMR Code</th>
                                     <th class="py-3 px-4">City / Location</th>
                                     <th class="py-3 px-4">Updated By</th>
@@ -1317,6 +1357,12 @@
                             <tbody class="divide-y divide-slate-800/60 font-medium">
                                 <tr v-for="l in locations" :key="l.branch" class="hover:bg-slate-800/40 transition">
                                     <td class="py-3 px-4 font-bold text-slate-200">{{ l.branch }}</td>
+                                    <td class="py-3 px-4">
+                                        <span class="px-2 py-0.5 rounded font-mono font-bold text-[10px] uppercase border"
+                                              :class="l.country === 'OMAN' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'">
+                                            {{ l.country || 'UAE' }}
+                                        </span>
+                                    </td>
                                     <td class="py-3 px-4 font-mono text-emerald-400">{{ l.emr || '---' }}</td>
                                     <td class="py-3 px-4 text-slate-300">{{ l.location || '---' }}</td>
                                     <td class="py-3 px-4 text-slate-400 text-[11px]">{{ l.updated_by_user || 'Admin' }}</td>
@@ -1492,6 +1538,18 @@
                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono" />
                 </div>
                 <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Allocated Country *</label>
+                    <select v-model="userModal.form.country"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-semibold">
+                        <option value="UAE">UAE</option>
+                        <option value="OMAN">OMAN</option>
+                        <option value="KSA">KSA</option>
+                        <option value="QATAR">QATAR</option>
+                        <option value="BAHRAIN">BAHRAIN</option>
+                        <option value="KUWAIT">KUWAIT</option>
+                    </select>
+                </div>
+                <div>
                     <label class="block font-semibold text-slate-300 mb-1">Role Permission *</label>
                     <select v-model="userModal.form.role"
                             class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-semibold">
@@ -1593,6 +1651,18 @@
                     <label class="block font-semibold text-slate-300 mb-1">Branch Name *</label>
                     <input v-model="locModal.form.branch" type="text" placeholder="e.g. BARSHA"
                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold uppercase" />
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Country *</label>
+                    <select v-model="locModal.form.country"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-semibold">
+                        <option value="UAE">UAE</option>
+                        <option value="OMAN">OMAN</option>
+                        <option value="KSA">KSA</option>
+                        <option value="QATAR">QATAR</option>
+                        <option value="BAHRAIN">BAHRAIN</option>
+                        <option value="KUWAIT">KUWAIT</option>
+                    </select>
                 </div>
                 <div>
                     <label class="block font-semibold text-slate-300 mb-1">EMR Code</label>

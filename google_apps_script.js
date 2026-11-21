@@ -17,13 +17,13 @@
  *    Branch | Location | Visit Date | Visit Time | Allocated to Staff | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
  * 
  * 4. Users_Data:
- *    UserName | Gmail | Role | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+ *    UserName | Gmail | Country | Role | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
  * 
  * 5. Roles:
  *    Role | Attendance Entry Form | View Reports & Breakdowns | Download Excel Reports | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
  * 
  * 6. Locations:
- *    Branch | Emr | Location | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+ *    Branch | Country | Emr | Location | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
  * 
  * 7. Attendance_data:
  *    Timestamp | Date | Employee Code | Employee Name | Branch | Status | Start Time | End Time | Total Hours | Notes | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
@@ -143,39 +143,68 @@ function doGet(e) {
     }
 
     // 2. Users_Data
+    // Columns: UserName | Gmail | Country | Role | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
     var usersSheet = ss.getSheetByName("Users_Data") || ss.getSheetByName("users_data") || ss.getSheetByName("Users Data");
     var usersList = [];
     if (usersSheet) {
       var usersData = usersSheet.getDataRange().getValues();
-      for (var u = 1; u < usersData.length; u++) {
-        var urow = usersData[u];
-        var uName = urow[0] ? urow[0].toString().trim() : "";
-        var uGmail = urow[1] ? urow[1].toString().trim().toLowerCase() : "";
-        var uRole = urow[2] ? urow[2].toString().trim() : "Data_Entry";
-        var uUpdatedBy = (urow.length > 3 && urow[3]) ? urow[3].toString().trim() : "";
-        var uUpdatedDate = (urow.length > 4 && urow[4]) ? urow[4].toString().trim() : "";
-
-        if (!uName && !uGmail) continue;
-
-        var rLower = uRole.toLowerCase().replace(/[\s\-_]/g, "");
-        var roleNorm = "Data_Entry";
-        if (rLower === "admin") {
-          roleNorm = "Admin";
-        } else if (rLower === "reportonly" || rLower === "report" || rLower === "reports") {
-          roleNorm = "Report_Only";
-        } else {
-          roleNorm = "Data_Entry";
+      if (usersData.length > 1) {
+        var uHeaders = usersData[0].map(function(h) { return h ? h.toString().toLowerCase().trim() : ""; });
+        var colUName = 0;
+        var colUGmail = 1;
+        var colUCountry = uHeaders.indexOf("country");
+        var colURole = uHeaders.indexOf("role");
+        var colUUpUser = -1;
+        var colUUpDate = -1;
+        for (var uhi = 0; uhi < uHeaders.length; uhi++) {
+          if (uHeaders[uhi].indexOf("updated by user") !== -1) colUUpUser = uhi;
+          if (uHeaders[uhi].indexOf("updated by date") !== -1) colUUpDate = uhi;
         }
 
-        usersList.push({
-          id: u,
-          row_index: u + 1,
-          user_name: uName,
-          gmail: uGmail,
-          role: roleNorm,
-          updated_by_user: uUpdatedBy,
-          updated_by_date: uUpdatedDate
-        });
+        // Adaptive column index fallback
+        if (colUCountry === -1 && usersData[0].length >= 4) {
+          colUCountry = 2;
+          colURole = 3;
+          if (colUUpUser === -1) colUUpUser = 4;
+          if (colUUpDate === -1) colUUpDate = 5;
+        } else if (colURole === -1) {
+          colURole = 2;
+          if (colUUpUser === -1) colUUpUser = 3;
+          if (colUUpDate === -1) colUUpDate = 4;
+        }
+
+        for (var u = 1; u < usersData.length; u++) {
+          var urow = usersData[u];
+          var uName = (colUName !== -1 && urow[colUName]) ? urow[colUName].toString().trim() : "";
+          var uGmail = (colUGmail !== -1 && urow[colUGmail]) ? urow[colUGmail].toString().trim().toLowerCase() : "";
+          var uCountry = (colUCountry !== -1 && urow[colUCountry]) ? urow[colUCountry].toString().trim().toUpperCase() : "UAE";
+          var uRole = (colURole !== -1 && urow[colURole]) ? urow[colURole].toString().trim() : "Data_Entry";
+          var uUpdatedBy = (colUUpUser !== -1 && urow[colUUpUser]) ? urow[colUUpUser].toString().trim() : "";
+          var uUpdatedDate = (colUUpDate !== -1 && urow[colUUpDate]) ? urow[colUUpDate].toString().trim() : "";
+
+          if (!uName && !uGmail) continue;
+
+          var rLower = uRole.toLowerCase().replace(/[\s\-_]/g, "");
+          var roleNorm = "Data_Entry";
+          if (rLower === "admin") {
+            roleNorm = "Admin";
+          } else if (rLower === "reportonly" || rLower === "report" || rLower === "reports") {
+            roleNorm = "Report_Only";
+          } else {
+            roleNorm = "Data_Entry";
+          }
+
+          usersList.push({
+            id: u,
+            row_index: u + 1,
+            user_name: uName,
+            gmail: uGmail,
+            country: uCountry,
+            role: roleNorm,
+            updated_by_user: uUpdatedBy,
+            updated_by_date: uUpdatedDate
+          });
+        }
       }
     }
 
@@ -240,23 +269,59 @@ function doGet(e) {
     }
 
     // 5. Locations
+    // Columns: Branch | Country | Emr | Location | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
     var locSheet = ss.getSheetByName("Locations") || ss.getSheetByName("locations");
     var locList = [];
     if (locSheet) {
       var locData = locSheet.getDataRange().getValues();
-      for (var k = 1; k < locData.length; k++) {
-        var lrow = locData[k];
-        var bName = lrow[0] ? lrow[0].toString().trim() : "";
-        if (!bName) continue;
-        locList.push({
-          id: k,
-          row_index: k + 1,
-          branch: bName,
-          emr: lrow[1] ? lrow[1].toString().trim() : "",
-          location: lrow[2] ? lrow[2].toString().trim() : "",
-          updated_by_user: (lrow.length > 3 && lrow[3]) ? lrow[3].toString().trim() : "",
-          updated_by_date: (lrow.length > 4 && lrow[4]) ? lrow[4].toString().trim() : ""
-        });
+      if (locData.length > 1) {
+        var lHeaders = locData[0].map(function(h) { return h ? h.toString().toLowerCase().trim() : ""; });
+        var colLBranch = 0;
+        var colLCountry = lHeaders.indexOf("country");
+        var colLEmr = lHeaders.indexOf("emr");
+        var colLLoc = lHeaders.indexOf("location");
+        var colLUpUser = -1;
+        var colLUpDate = -1;
+        for (var lhi = 0; lhi < lHeaders.length; lhi++) {
+          if (lHeaders[lhi].indexOf("updated by user") !== -1) colLUpUser = lhi;
+          if (lHeaders[lhi].indexOf("updated by date") !== -1) colLUpDate = lhi;
+        }
+
+        // Adaptive column index fallback
+        if (colLCountry === -1 && locData[0].length >= 4) {
+          colLCountry = 1;
+          colLEmr = 2;
+          colLLoc = 3;
+          if (colLUpUser === -1) colLUpUser = 4;
+          if (colLUpDate === -1) colLUpDate = 5;
+        } else if (colLEmr === -1) {
+          colLEmr = 1;
+          colLLoc = 2;
+          if (colLUpUser === -1) colLUpUser = 3;
+          if (colLUpDate === -1) colLUpDate = 4;
+        }
+
+        for (var k = 1; k < locData.length; k++) {
+          var lrow = locData[k];
+          var bName = (colLBranch !== -1 && lrow[colLBranch]) ? lrow[colLBranch].toString().trim() : "";
+          if (!bName) continue;
+          var bCountry = (colLCountry !== -1 && lrow[colLCountry]) ? lrow[colLCountry].toString().trim().toUpperCase() : "UAE";
+          var bEmr = (colLEmr !== -1 && lrow[colLEmr]) ? lrow[colLEmr].toString().trim() : "";
+          var bLoc = (colLLoc !== -1 && lrow[colLLoc]) ? lrow[colLLoc].toString().trim() : "";
+          var bUpUser = (colLUpUser !== -1 && lrow[colLUpUser]) ? lrow[colLUpUser].toString().trim() : "";
+          var bUpDate = (colLUpDate !== -1 && lrow[colLUpDate]) ? lrow[colLUpDate].toString().trim() : "";
+
+          locList.push({
+            id: k,
+            row_index: k + 1,
+            branch: bName,
+            country: bCountry,
+            emr: bEmr,
+            location: bLoc,
+            updated_by_user: bUpUser,
+            updated_by_date: bUpDate
+          });
+        }
       }
     }
 
@@ -539,13 +604,13 @@ function handleAdminCrud(ss, payload, tz) {
     if (sheetName === "Staff_data") {
       headers = ["Sl. No.", "Employee Code", "Employee Name", "Designation", "Allocated to", "Whatsapp", "IMAGE", "Gmail", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Users_Data") {
-      headers = ["UserName", "Gmail", "Role", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+      headers = ["UserName", "Gmail", "Country", "Role", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "User_Allocation") {
       headers = ["Employee Code", "Employee Name", "Allocated to Employee Code", "Allocated to Employee Name", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Schedule") {
       headers = ["Branch", "Location", "Visit Date", "Visit Time", "Allocated to Staff", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Locations") {
-      headers = ["Branch", "Emr", "Location", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+      headers = ["Branch", "Country", "Emr", "Location", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Roles") {
       headers = ["Role", "Attendance Entry Form", "View Reports & Breakdowns", "Download Excel Reports", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     }
@@ -594,6 +659,7 @@ function handleAdminCrud(ss, payload, tz) {
     rowValues = [
       data.user_name || "",
       (data.gmail || "").toLowerCase().trim(),
+      (data.country || "UAE").toUpperCase().trim(),
       data.role || "Data_Entry",
       updatedBy,
       auditDate
@@ -620,7 +686,8 @@ function handleAdminCrud(ss, payload, tz) {
   } else if (sheetName === "Locations") {
     rowValues = [
       data.branch || "",
-      (data.emr || "").toUpperCase(),
+      (data.country || "UAE").toUpperCase().trim(),
+      (data.emr || "").toUpperCase().trim(),
       data.location || "",
       updatedBy,
       auditDate
