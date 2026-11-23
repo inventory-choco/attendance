@@ -759,6 +759,18 @@ const app = createApp({
                 if (netBalance > 0) otCount++;
                 else if (netBalance < 0) utCount++;
 
+                // Collect unique branches where the staff actually logged attendance during this cycle
+                const loggedBranchesSet = new Set();
+                weeklyBreakdown.forEach(w => {
+                    (w.days || []).forEach(d => {
+                        if (d.status === 'Present' && d.location && d.location.trim()) {
+                            loggedBranchesSet.add(d.location.trim());
+                        }
+                    });
+                });
+                const loggedBranchesArr = Array.from(loggedBranchesSet);
+                const displayBranch = loggedBranchesArr.length > 0 ? loggedBranchesArr.join(', ') : staff.allocated_to;
+
                 return {
                     id: staff.id,
                     sl_no: staff.sl_no,
@@ -766,6 +778,8 @@ const app = createApp({
                     name: staff.name,
                     designation: staff.designation,
                     allocated_to: staff.allocated_to,
+                    display_branch: displayBranch,
+                    logged_branches: loggedBranchesArr.join(', '),
                     whatsapp: staff.whatsapp,
                     gmail: staff.gmail || '',
                     image_url: staff.image_url || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(staff.name)}`,
@@ -884,7 +898,7 @@ const app = createApp({
                     s.employee_code,
                     s.name,
                     s.designation,
-                    s.allocated_to,
+                    s.display_branch || s.allocated_to,
                     s.whatsapp,
                     s.gmail,
                     w1, w2, w3, w4, w5,
@@ -923,7 +937,7 @@ const app = createApp({
                             s.employee_code,
                             s.name,
                             s.designation,
-                            d.location || s.allocated_to,
+                            d.location || s.display_branch || s.allocated_to,
                             d.status,
                             d.checkIn || "",
                             d.checkOut || "",
@@ -954,12 +968,61 @@ const app = createApp({
         const scheduleForm = ref({
             branch: '',
             location: '',
-            visit_date: todayStr,
-            visit_time: '09:00',
+            visit_start_date: todayStr,
+            visit_start_time: '09:00',
+            visit_end_date: todayStr,
+            visit_end_time: '18:00',
             allocated_to_staff: '',
             row_index: null,
             is_editing: false
         });
+
+        // Smart Search Autocomplete for Schedule Branch (identical to Log Attendance)
+        const scheduleLocationSearchQuery = ref('');
+        const showScheduleLocationDropdown = ref(false);
+
+        // Filtered locations with multi-token substring search
+        const matchedScheduleLocations = computed(() => {
+            const baseList = sortedLocations.value;
+            if (!scheduleLocationSearchQuery.value) return baseList;
+            const q = scheduleLocationSearchQuery.value.toLowerCase().trim();
+            const tokens = q.split(/\s+/).filter(Boolean);
+            return baseList.filter(loc => {
+                const haystack = `${loc.branch || ''} ${loc.country || ''} ${loc.emr || ''} ${loc.location || ''}`.toLowerCase();
+                return tokens.every(token => haystack.includes(token));
+            });
+        });
+
+        const selectLocationForSchedule = (loc) => {
+            if (!loc) return;
+            scheduleForm.value.branch = loc.branch;
+            scheduleForm.value.location = loc.location || loc.emr || '';
+            scheduleLocationSearchQuery.value = loc.branch;
+            showScheduleLocationDropdown.value = false;
+        };
+
+        // Automatically calculate +9 hours from start date & time (handles midnight/day rollover)
+        const updateScheduleEndTime = () => {
+            if (!scheduleForm.value.visit_start_date) return;
+            const timeStr = scheduleForm.value.visit_start_time || '09:00';
+            try {
+                const [year, month, day] = scheduleForm.value.visit_start_date.split('-').map(Number);
+                const [hours, minutes] = timeStr.split(':').map(Number);
+                const startDt = new Date(year, month - 1, day, hours, minutes, 0);
+                const endDt = new Date(startDt.getTime() + 9 * 60 * 60 * 1000);
+
+                const endYear = endDt.getFullYear();
+                const endMonth = String(endDt.getMonth() + 1).padStart(2, '0');
+                const endDay = String(endDt.getDate()).padStart(2, '0');
+                const endHours = String(endDt.getHours()).padStart(2, '0');
+                const endMinutes = String(endDt.getMinutes()).padStart(2, '0');
+
+                scheduleForm.value.visit_end_date = `${endYear}-${endMonth}-${endDay}`;
+                scheduleForm.value.visit_end_time = `${endHours}:${endMinutes}`;
+            } catch (err) {
+                console.error("Error auto-calculating 9h schedule end:", err);
+            }
+        };
 
         const scheduleFilterBranch = ref('ALL');
         const scheduleFilterStaff = ref('ALL');
@@ -979,19 +1042,19 @@ const app = createApp({
                 if (scheduleFilterStaff.value !== 'ALL' && sc.allocated_to_staff !== scheduleFilterStaff.value) return false;
                 if (scheduleSearchQuery.value) {
                     const tokens = scheduleSearchQuery.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
-                    const haystack = `${sc.branch || ''} ${sc.location || ''} ${sc.allocated_to_staff || ''} ${sc.visit_date || ''} ${sc.updated_by_user || ''}`.toLowerCase();
+                    const haystack = `${sc.branch || ''} ${sc.location || ''} ${sc.allocated_to_staff || ''} ${sc.visit_start_date || sc.visit_date || ''} ${sc.visit_end_date || ''} ${sc.updated_by_user || ''}`.toLowerCase();
                     if (!tokens.every(token => haystack.includes(token))) return false;
                 }
                 return true;
-            }).sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || ''));
+            }).sort((a, b) => (b.visit_start_date || b.visit_date || '').localeCompare(a.visit_start_date || a.visit_date || ''));
         });
 
         const saveSchedule = async () => {
             if (!scheduleForm.value.branch) {
-                return showToast("Please select a Branch", "error");
+                return showToast("Please select a Branch Location", "error");
             }
-            if (!scheduleForm.value.visit_date) {
-                return showToast("Please select a Visit Date", "error");
+            if (!scheduleForm.value.visit_start_date) {
+                return showToast("Please select a Visit Start Date", "error");
             }
             if (!scheduleForm.value.allocated_to_staff) {
                 return showToast("Please select a Staff Member", "error");
@@ -1001,44 +1064,65 @@ const app = createApp({
             const payloadData = {
                 branch: scheduleForm.value.branch,
                 location: scheduleForm.value.location,
-                visit_date: scheduleForm.value.visit_date,
-                visit_time: scheduleForm.value.visit_time || '09:00',
+                visit_start_date: scheduleForm.value.visit_start_date,
+                visit_start_time: scheduleForm.value.visit_start_time || '09:00',
+                visit_end_date: scheduleForm.value.visit_end_date || scheduleForm.value.visit_start_date,
+                visit_end_time: scheduleForm.value.visit_end_time || '18:00',
+                visit_date: scheduleForm.value.visit_start_date,
+                visit_time: scheduleForm.value.visit_start_time || '09:00',
                 allocated_to_staff: scheduleForm.value.allocated_to_staff
             };
 
             const success = await sendAdminCrud('Schedule', op, scheduleForm.value.row_index, payloadData);
             if (success) {
                 scheduleForm.value.branch = '';
+                scheduleLocationSearchQuery.value = '';
                 scheduleForm.value.location = '';
+                scheduleForm.value.visit_start_date = todayStr;
+                scheduleForm.value.visit_start_time = '09:00';
+                scheduleForm.value.visit_end_date = todayStr;
+                scheduleForm.value.visit_end_time = '18:00';
                 scheduleForm.value.allocated_to_staff = '';
                 scheduleForm.value.is_editing = false;
                 scheduleForm.value.row_index = null;
+                showScheduleLocationDropdown.value = false;
             }
         };
 
         const editSchedule = (sc) => {
-            scheduleForm.value.branch = sc.branch;
-            scheduleForm.value.location = sc.location;
-            scheduleForm.value.visit_date = sc.visit_date;
-            scheduleForm.value.visit_time = sc.visit_time;
-            scheduleForm.value.allocated_to_staff = sc.allocated_to_staff;
+            scheduleForm.value.branch = sc.branch || '';
+            scheduleLocationSearchQuery.value = sc.branch || '';
+            scheduleForm.value.location = sc.location || '';
+            scheduleForm.value.visit_start_date = sc.visit_start_date || sc.visit_date || todayStr;
+            scheduleForm.value.visit_start_time = sc.visit_start_time || sc.visit_time || '09:00';
+            scheduleForm.value.visit_end_date = sc.visit_end_date || scheduleForm.value.visit_start_date;
+            scheduleForm.value.visit_end_time = sc.visit_end_time || '18:00';
+            scheduleForm.value.allocated_to_staff = sc.allocated_to_staff || '';
             scheduleForm.value.row_index = sc.row_index;
             scheduleForm.value.is_editing = true;
+            showScheduleLocationDropdown.value = false;
             const el = document.getElementById('schedule-form-card');
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         };
 
         const deleteSchedule = async (sc) => {
-            if (!confirm(`Delete visit schedule to ${sc.branch} on ${sc.visit_date}?`)) return;
+            const vDate = sc.visit_start_date || sc.visit_date || '';
+            if (!confirm(`Delete visit schedule to ${sc.branch} on ${vDate}?`)) return;
             await sendAdminCrud('Schedule', 'delete', sc.row_index, {});
         };
 
         const cancelScheduleEdit = () => {
             scheduleForm.value.branch = '';
+            scheduleLocationSearchQuery.value = '';
             scheduleForm.value.location = '';
+            scheduleForm.value.visit_start_date = todayStr;
+            scheduleForm.value.visit_start_time = '09:00';
+            scheduleForm.value.visit_end_date = todayStr;
+            scheduleForm.value.visit_end_time = '18:00';
             scheduleForm.value.allocated_to_staff = '';
             scheduleForm.value.is_editing = false;
             scheduleForm.value.row_index = null;
+            showScheduleLocationDropdown.value = false;
         };
 
         const exportScheduleExcel = () => {
@@ -1049,7 +1133,7 @@ const app = createApp({
                 ["BRANCH VISIT SCHEDULES"],
                 [`Exported On: ${new Date().toLocaleString()}`],
                 [],
-                ["Sl", "Branch", "Location", "Visit Date", "Visit Time", "Allocated to Staff", "Updated By User", "Updated By Date"]
+                ["Sl", "Branch", "Location", "Visit Start Date", "Visit Start Time", "Visit End Date", "Visit End Time", "Allocated to Staff", "Updated By User", "Updated By Date"]
             ];
 
             filteredSchedules.value.forEach((sc, idx) => {
@@ -1057,8 +1141,10 @@ const app = createApp({
                     idx + 1,
                     sc.branch,
                     sc.location,
-                    sc.visit_date,
-                    sc.visit_time,
+                    sc.visit_start_date || sc.visit_date || '',
+                    sc.visit_start_time || sc.visit_time || '',
+                    sc.visit_end_date || sc.visit_start_date || sc.visit_date || '',
+                    sc.visit_end_time || '',
                     sc.allocated_to_staff,
                     sc.updated_by_user,
                     sc.updated_by_date
@@ -1730,6 +1816,11 @@ const app = createApp({
             selectLocationForEntry,
             // Schedule Module
             scheduleForm,
+            scheduleLocationSearchQuery,
+            showScheduleLocationDropdown,
+            matchedScheduleLocations,
+            selectLocationForSchedule,
+            updateScheduleEndTime,
             scheduleFilterBranch,
             scheduleFilterStaff,
             scheduleSearchQuery,

@@ -173,45 +173,53 @@
                 </div>
             </div>
 
-            <!-- Tab Navigation Bar -->
-            <div class="flex space-x-1 overflow-x-auto py-2 no-scrollbar text-xs font-medium border-t border-slate-800/60">
-                <button @click="currentTab = 'daily'"
-                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
-                        :class="currentTab === 'daily' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
-                    <i class="fa-solid fa-calendar-days"></i>
-                    <span>Selected Staff Daily Breakdown</span>
-                </button>
+            <!-- Enterprise Segmented Tab Navigation -->
+            <div class="py-2.5 overflow-x-auto no-scrollbar">
+                <div class="inline-flex items-center gap-1 p-1 bg-slate-950/80 rounded-2xl border border-slate-800 shadow-inner">
+                    <button @click="currentTab = 'daily'"
+                            class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
+                            :class="currentTab === 'daily' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
+                        <i class="fa-solid fa-calendar-day"></i>
+                        <span>Selected Staff Daily Breakdown</span>
+                    </button>
 
-                <button @click="currentTab = 'summary'"
-                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
-                        :class="currentTab === 'summary' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
-                    <i class="fa-solid fa-table-list"></i>
-                    <span>Organization Summary Table</span>
-                </button>
+                    <button @click="currentTab = 'summary'"
+                            class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
+                            :class="currentTab === 'summary' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
+                        <i class="fa-solid fa-table-list"></i>
+                        <span>Organization Summary Table</span>
+                    </button>
 
-                <button @click="currentTab = 'roster'"
-                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
-                        :class="currentTab === 'roster' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
-                    <i class="fa-solid fa-id-badge"></i>
-                    <span>Staff Directory ({{ visibleStaffList.length }})</span>
-                </button>
+                    <button @click="currentTab = 'roster'"
+                            class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
+                            :class="currentTab === 'roster' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
+                        <i class="fa-solid fa-address-book"></i>
+                        <span>Staff Directory</span>
+                        <span class="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold"
+                              :class="currentTab === 'roster' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'">
+                            {{ visibleStaffList.length }}
+                        </span>
+                    </button>
 
-                <!-- Branch Visit Schedule Tab -->
-                <button @click="currentTab = 'schedule'"
-                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
-                        :class="currentTab === 'schedule' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'">
-                    <i class="fa-solid fa-map-location-dot"></i>
-                    <span>Branch Visit Schedule ({{ schedulesList.length }})</span>
-                </button>
+                    <button @click="currentTab = 'schedule'"
+                            class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
+                            :class="currentTab === 'schedule' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
+                        <i class="fa-solid fa-map-location-dot"></i>
+                        <span>Branch Visit Schedule</span>
+                        <span class="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold"
+                              :class="currentTab === 'schedule' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'">
+                            {{ schedulesList.length }}
+                        </span>
+                    </button>
 
-                <!-- Admin Portal Tab (Admin Role ONLY) -->
-                <button v-if="isAdmin" @click="currentTab = 'admin'"
-                        class="px-3.5 py-2 rounded-xl flex items-center gap-2 transition whitespace-nowrap ml-auto"
-                        :class="currentTab === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold shadow-md shadow-amber-500/10' : 'text-amber-400/90 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-500/30'">
-                    <i class="fa-solid fa-shield-halved"></i>
-                    <span>Admin Portal</span>
-                    <span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold uppercase">Admin</span>
-                </button>
+                    <button v-if="isAdmin" @click="currentTab = 'admin'"
+                            class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap ml-1"
+                            :class="currentTab === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-amber-400/80 hover:text-amber-200 hover:bg-amber-500/10 border border-transparent'">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Admin Portal</span>
+                        <span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/30 text-amber-200 font-bold uppercase tracking-wider">Admin</span>
+                    </button>
+                </div>
             </div>
         </div>
     </header>
@@ -229,10 +237,13 @@
         <template v-else>
 
         <!-- ========================================================= -->
-        <!-- SECTION 1: LOG STAFF ATTENDANCE (SMART ENTRY FORM)        -->
+        <!-- TAB 1: SELECTED STAFF DAILY BREAKDOWN (CARDS PER WEEK)    -->
         <!-- ========================================================= -->
-        <!-- Rendered for Admin & Data_Entry roles -->
-        <div v-if="canDataEntry" id="entry-form-section" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
+        <div v-if="currentTab === 'daily'" class="space-y-6">
+
+            <!-- SECTION 1: LOG STAFF ATTENDANCE (SMART ENTRY FORM)        -->
+            <!-- Rendered for Admin & Data_Entry roles -->
+            <div v-if="canDataEntry" id="entry-form-section" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-5">
                 <div>
                     <h2 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
@@ -519,11 +530,6 @@
             </div>
         </div>
 
-        <!-- ========================================================= -->
-        <!-- TAB 1: SELECTED STAFF DAILY BREAKDOWN (CARDS PER WEEK)    -->
-        <!-- ========================================================= -->
-        <div v-if="currentTab === 'daily'" class="space-y-6">
-
             <div v-if="selectedStaffReport" class="space-y-6">
 
                 <!-- Selected Staff Header Card -->
@@ -694,6 +700,32 @@
         <!-- ========================================================= -->
         <div v-if="currentTab === 'summary'" class="space-y-6">
 
+            <!-- Cutoff Period & Action Bar -->
+            <div class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                        <i class="fa-regular fa-calendar-check"></i>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Attendance Cutoff Cycle (20th–19th)</label>
+                        <select v-model="selectedCycle" @change="onCycleChange"
+                                class="bg-navy-950 border border-slate-700 text-slate-100 text-xs sm:text-sm rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium">
+                            <option v-for="c in availableCycles" :key="c.key" :value="c.key">{{ c.label }}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="text-xs text-slate-400">Cycle: <strong class="text-slate-200">{{ reportData.cycle_label }}</strong></span>
+                    <button v-if="canExportReports" @click="exportExcel"
+                            :disabled="staffList.length === 0"
+                            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-2 whitespace-nowrap">
+                        <i class="fa-solid fa-file-arrow-down"></i>
+                        <span>Download Excel Report</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- KPI Summary Cards -->
             <div v-if="reportData && reportData.stats" class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
                 <div class="bg-navy-900 p-4 rounded-2xl border border-slate-800 shadow-md">
@@ -797,8 +829,9 @@
                                     </div>
                                 </td>
                                 <td class="py-3 px-4">
-                                    <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-semibold">
-                                        {{ staff.allocated_to }}
+                                    <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-[10px] font-semibold border border-slate-700/60"
+                                          :title="'Allocated: ' + staff.allocated_to">
+                                        {{ staff.display_branch || staff.allocated_to }}
                                     </span>
                                 </td>
                                 <td class="py-3 px-3 text-center font-mono">{{ staff.weekly_breakdown[0] ? staff.weekly_breakdown[0].worked_hours : '-' }}</td>
@@ -891,22 +924,83 @@
 
                 <!-- Form Inputs Grid -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                    <!-- Branch Selection -->
-                    <div>
-                        <label class="block font-semibold text-slate-300 mb-1.5">
-                            Branch <span class="text-emerald-400">*</span>
-                        </label>
-                        <select v-model="scheduleForm.branch" @change="onScheduleBranchChange"
-                                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-semibold">
-                            <option value="" disabled>-- Select Branch --</option>
-                            <option v-for="loc in sortedLocations" :key="loc.branch" :value="loc.branch">
-                                {{ loc.branch }}
-                            </option>
-                        </select>
+                    <!-- 1. Smart Branch Location Selector (Any Substring Match + Country Filter) -->
+                    <div class="relative sm:col-span-2">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="block font-semibold text-slate-300">
+                                Branch Location <span class="text-emerald-400">*</span>
+                            </label>
+                            <span class="text-[10px] font-mono font-semibold" :class="isAdmin ? 'text-amber-400' : 'text-emerald-400'">
+                                {{ sortedLocations.length }} Branches ({{ isAdmin ? 'All Countries' : (userCountry || 'UAE') }})
+                            </span>
+                        </div>
+
+                        <!-- Smart Search Input Box -->
+                        <div class="relative">
+                            <i class="fa-solid fa-location-dot absolute left-3 top-3 text-slate-500 text-xs pointer-events-none"></i>
+                            <input type="text"
+                                   v-model="scheduleLocationSearchQuery"
+                                   @focus="showScheduleLocationDropdown = true"
+                                   placeholder="Search any branch (e.g. City, Hamra, Barka, Salalah)..."
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-16 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium" />
+
+                            <!-- Right control buttons: Clear and Dropdown Toggle -->
+                            <div class="absolute right-2 top-2 flex items-center gap-1.5">
+                                <button v-if="scheduleLocationSearchQuery"
+                                        type="button"
+                                        @click="scheduleLocationSearchQuery = ''; showScheduleLocationDropdown = true"
+                                        class="text-slate-500 hover:text-slate-300 p-1 text-xs" title="Clear Search">
+                                    <i class="fa-solid fa-circle-xmark"></i>
+                                </button>
+                                <button type="button"
+                                        @click="showScheduleLocationDropdown = !showScheduleLocationDropdown"
+                                        class="text-slate-500 hover:text-slate-300 p-1 text-xs" title="Toggle Branch List">
+                                    <i class="fa-solid fa-chevron-down text-[10px]" :class="{ 'rotate-180': showScheduleLocationDropdown }"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Selected Branch Indicator Pill -->
+                        <div v-if="scheduleForm.branch" class="mt-1 flex items-center justify-between text-[11px] text-slate-400 px-1">
+                            <span>Selected: <strong class="text-emerald-400 font-semibold">{{ scheduleForm.branch }}</strong></span>
+                            <span v-if="scheduleForm.branch !== scheduleLocationSearchQuery"
+                                  @click="scheduleLocationSearchQuery = scheduleForm.branch"
+                                  class="text-[10px] text-slate-500 hover:text-slate-300 cursor-pointer underline">
+                                Reset filter
+                            </span>
+                        </div>
+
+                        <!-- Smart Dropdown Menu (Any word substring match) -->
+                        <div v-if="showScheduleLocationDropdown" @click="showScheduleLocationDropdown = false" class="fixed inset-0 z-20"></div>
+                        <div v-if="showScheduleLocationDropdown"
+                             class="absolute left-0 right-0 mt-1 bg-navy-900 border border-slate-700 rounded-xl shadow-2xl z-30 max-h-60 overflow-y-auto divide-y divide-slate-800">
+                            <div v-for="loc in matchedScheduleLocations"
+                                 :key="loc.branch"
+                                 @click="selectLocationForSchedule(loc)"
+                                 class="p-2.5 hover:bg-slate-800 cursor-pointer transition flex items-center justify-between group"
+                                 :class="{ 'bg-emerald-500/10 border-l-2 border-emerald-400': scheduleForm.branch === loc.branch }">
+                                <div class="flex-1">
+                                    <div class="font-bold text-slate-200 group-hover:text-emerald-400 transition flex items-center gap-2">
+                                        <span>{{ loc.branch }}</span>
+                                        <span class="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider"
+                                              :class="(loc.country === 'OMAN' || loc.country === 'OM') ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'">
+                                            {{ (loc.country === 'OM' || loc.country === 'OMAN') ? 'OMAN' : (loc.country || 'UAE') }}
+                                        </span>
+                                    </div>
+                                    <div class="text-[11px] text-slate-400 mt-0.5">
+                                        {{ loc.location || loc.emr || 'Main Area' }} <span v-if="loc.emr && loc.location">• {{ loc.emr }}</span>
+                                    </div>
+                                </div>
+                                <i v-if="scheduleForm.branch === loc.branch" class="fa-solid fa-check text-emerald-400 text-xs"></i>
+                            </div>
+                            <div v-if="matchedScheduleLocations.length === 0" class="p-4 text-center text-slate-500 text-xs">
+                                No branches matching "{{ scheduleLocationSearchQuery }}"
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Location (Auto-filled from branch) -->
-                    <div>
+                    <!-- 2. Location (Auto-Filled from branch) -->
+                    <div class="sm:col-span-2">
                         <label class="block font-semibold text-slate-300 mb-1.5">
                             Location (Auto-Filled)
                         </label>
@@ -914,25 +1008,57 @@
                                class="w-full bg-slate-950/80 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none font-medium" />
                     </div>
 
-                    <!-- Visit Date -->
+                    <!-- 3. Visit Start Date -->
                     <div>
                         <label class="block font-semibold text-slate-300 mb-1.5">
-                            Visit Date <span class="text-emerald-400">*</span>
+                            Visit Start Date <span class="text-emerald-400">*</span>
                         </label>
-                        <input v-model="scheduleForm.visit_date" type="date"
+                        <input v-model="scheduleForm.visit_start_date"
+                               @change="updateScheduleEndTime"
+                               @input="updateScheduleEndTime"
+                               type="date"
                                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-mono" />
                     </div>
 
-                    <!-- Visit Time -->
+                    <!-- 4. Visit Start Time -->
                     <div>
                         <label class="block font-semibold text-slate-300 mb-1.5">
-                            Visit Time
+                            Visit Start Time
                         </label>
-                        <input v-model="scheduleForm.visit_time" type="time"
+                        <input v-model="scheduleForm.visit_start_time"
+                               @change="updateScheduleEndTime"
+                               @input="updateScheduleEndTime"
+                               type="time"
                                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-mono" />
                     </div>
 
-                    <!-- Staff Assigned -->
+                    <!-- 5. Visit End Date (Auto-filled +9h) -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="block font-semibold text-slate-300">
+                                Visit End Date
+                            </label>
+                            <span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold">Auto (+9h)</span>
+                        </div>
+                        <input v-model="scheduleForm.visit_end_date"
+                               type="date"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-mono" />
+                    </div>
+
+                    <!-- 6. Visit End Time (Auto-filled +9h) -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="block font-semibold text-slate-300">
+                                Visit End Time
+                            </label>
+                            <span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold">Auto (+9h)</span>
+                        </div>
+                        <input v-model="scheduleForm.visit_end_time"
+                               type="time"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-mono" />
+                    </div>
+
+                    <!-- 7. Staff Assigned -->
                     <div class="sm:col-span-2 lg:col-span-4">
                         <label class="block font-semibold text-slate-300 mb-1.5">
                             Allocated to Staff <span class="text-emerald-400">*</span>
@@ -1003,7 +1129,7 @@
                     <table class="w-full text-left text-xs whitespace-nowrap">
                         <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                             <tr>
-                                <th class="py-3 px-4">Visit Date & Time</th>
+                                <th class="py-3 px-4">Visit Window (Start → End)</th>
                                 <th class="py-3 px-4">Branch</th>
                                 <th class="py-3 px-4">Location</th>
                                 <th class="py-3 px-4">Allocated Staff</th>
@@ -1015,10 +1141,17 @@
                         <tbody class="divide-y divide-slate-800/60 font-medium">
                             <tr v-for="sc in filteredSchedules" :key="sc.row_index" class="hover:bg-slate-800/40 transition">
                                 <td class="py-3 px-4">
-                                    <div class="font-mono font-bold text-slate-100 flex items-center gap-1.5">
-                                        <i class="fa-regular fa-calendar text-emerald-400"></i>
-                                        <span>{{ sc.visit_date }}</span>
-                                        <span class="text-slate-400 font-normal">@ {{ sc.visit_time || '09:00' }}</span>
+                                    <div class="font-mono text-slate-100">
+                                        <div class="font-bold flex items-center gap-1.5">
+                                            <i class="fa-regular fa-calendar-check text-emerald-400"></i>
+                                            <span>{{ sc.visit_start_date || sc.visit_date }}</span>
+                                            <span class="text-emerald-400 font-semibold">@ {{ sc.visit_start_time || sc.visit_time || '09:00' }}</span>
+                                        </div>
+                                        <div class="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5 pl-4">
+                                            <i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                            <span>{{ sc.visit_end_date || sc.visit_start_date || sc.visit_date }}</span>
+                                            <span class="text-slate-300 font-semibold">@ {{ sc.visit_end_time || '18:00' }}</span>
+                                        </div>
                                     </div>
                                 </td>
                                 <td class="py-3 px-4">

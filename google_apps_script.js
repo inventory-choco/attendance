@@ -239,33 +239,85 @@ function doGet(e) {
     }
 
     // 4. Schedule
+    // Supported Columns: Branch | Location | Visit Start Date | Visit Start Time | Visit End Date | Visit End Time | Allocated to Staff | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+    // Also backwards-compatible with 7 columns: Branch | Location | Visit Date | Visit Time | Allocated to Staff | Updated By User | Updated By date
     var schedSheet = ss.getSheetByName("Schedule") || ss.getSheetByName("schedule");
     var schedList = [];
     if (schedSheet) {
       var schedData = schedSheet.getDataRange().getValues();
-      for (var sc = 1; sc < schedData.length; sc++) {
-        var sRow = schedData[sc];
-        var sBranch = sRow[0] ? sRow[0].toString().trim() : "";
-        var sLoc = sRow[1] ? sRow[1].toString().trim() : "";
-        var sDate = sRow[2] ? formatDateSafe(sRow[2], tz) : "";
-        var sTime = sRow[3] ? sRow[3].toString().trim() : "";
-        var sStaff = sRow[4] ? sRow[4].toString().trim() : "";
-        var sUpdatedBy = (sRow.length > 5 && sRow[5]) ? sRow[5].toString().trim() : "";
-        var sUpdatedDate = (sRow.length > 6 && sRow[6]) ? sRow[6].toString().trim() : "";
+      if (schedData.length > 1) {
+        var sHeaders = schedData[0].map(function(h) { return h ? h.toString().toLowerCase().trim() : ""; });
+        var colSBranch = 0;
+        var colSLoc = 1;
+        var colSStartDate = -1;
+        var colSStartTime = -1;
+        var colSEndDate = -1;
+        var colSEndTime = -1;
+        var colSStaff = -1;
+        var colSUpUser = -1;
+        var colSUpDate = -1;
 
-        if (!sBranch && !sDate && !sStaff) continue;
+        for (var shi = 0; shi < sHeaders.length; shi++) {
+          var sh = sHeaders[shi];
+          if (sh.indexOf("start date") !== -1 || sh.indexOf("date start") !== -1) colSStartDate = shi;
+          else if (sh.indexOf("visit date") !== -1 || sh === "date") { if (colSStartDate === -1) colSStartDate = shi; }
+          
+          if (sh.indexOf("start time") !== -1 || sh.indexOf("time start") !== -1) colSStartTime = shi;
+          else if (sh.indexOf("visit time") !== -1 || sh === "time") { if (colSStartTime === -1) colSStartTime = shi; }
 
-        schedList.push({
-          id: sc,
-          row_index: sc + 1,
-          branch: sBranch,
-          location: sLoc,
-          visit_date: sDate,
-          visit_time: sTime,
-          allocated_to_staff: sStaff,
-          updated_by_user: sUpdatedBy,
-          updated_by_date: sUpdatedDate
-        });
+          if (sh.indexOf("end date") !== -1 || sh.indexOf("date end") !== -1) colSEndDate = shi;
+          if (sh.indexOf("end time") !== -1 || sh.indexOf("time end") !== -1) colSEndTime = shi;
+
+          if (sh.indexOf("staff") !== -1 || sh.indexOf("allocated") !== -1) colSStaff = shi;
+          if (sh.indexOf("updated by user") !== -1) colSUpUser = shi;
+          if (sh.indexOf("updated by date") !== -1) colSUpDate = shi;
+        }
+
+        // Positional defaults if headers didn't match
+        if (colSStartDate === -1) colSStartDate = 2;
+        if (colSStartTime === -1) colSStartTime = 3;
+        if (colSEndDate === -1 && schedData[0].length >= 8) {
+          colSEndDate = 4;
+          colSEndTime = 5;
+          if (colSStaff === -1) colSStaff = 6;
+          if (colSUpUser === -1) colSUpUser = 7;
+          if (colSUpDate === -1) colSUpDate = 8;
+        } else {
+          if (colSStaff === -1) colSStaff = 4;
+          if (colSUpUser === -1) colSUpUser = 5;
+          if (colSUpDate === -1) colSUpDate = 6;
+        }
+
+        for (var sc = 1; sc < schedData.length; sc++) {
+          var sRow = schedData[sc];
+          var sBranch = sRow[colSBranch] ? sRow[colSBranch].toString().trim() : "";
+          var sLoc = (colSLoc !== -1 && sRow[colSLoc]) ? sRow[colSLoc].toString().trim() : "";
+          var sStartDate = (colSStartDate !== -1 && sRow[colSStartDate]) ? formatDateSafe(sRow[colSStartDate], tz) : "";
+          var sStartTime = (colSStartTime !== -1 && sRow[colSStartTime]) ? sRow[colSStartTime].toString().trim() : "09:00";
+          var sEndDate = (colSEndDate !== -1 && sRow[colSEndDate]) ? formatDateSafe(sRow[colSEndDate], tz) : sStartDate;
+          var sEndTime = (colSEndTime !== -1 && sRow[colSEndTime]) ? sRow[colSEndTime].toString().trim() : "18:00";
+          var sStaff = (colSStaff !== -1 && sRow[colSStaff]) ? sRow[colSStaff].toString().trim() : "";
+          var sUpdatedBy = (colSUpUser !== -1 && sRow[colSUpUser]) ? sRow[colSUpUser].toString().trim() : "";
+          var sUpdatedDate = (colSUpDate !== -1 && sRow[colSUpDate]) ? sRow[colSUpDate].toString().trim() : "";
+
+          if (!sBranch && !sStartDate && !sStaff) continue;
+
+          schedList.push({
+            id: sc,
+            row_index: sc + 1,
+            branch: sBranch,
+            location: sLoc,
+            visit_start_date: sStartDate,
+            visit_start_time: sStartTime,
+            visit_end_date: sEndDate || sStartDate,
+            visit_end_time: sEndTime || "18:00",
+            visit_date: sStartDate,
+            visit_time: sStartTime,
+            allocated_to_staff: sStaff,
+            updated_by_user: sUpdatedBy,
+            updated_by_date: sUpdatedDate
+          });
+        }
       }
     }
 
@@ -610,7 +662,7 @@ function handleAdminCrud(ss, payload, tz) {
     } else if (sheetName === "User_Allocation") {
       headers = ["Employee Code", "Employee Name", "Allocated to Employee Code", "Allocated to Employee Name", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Schedule") {
-      headers = ["Branch", "Location", "Visit Date", "Visit Time", "Allocated to Staff", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+      headers = ["Branch", "Location", "Visit Start Date", "Visit Start Time", "Visit End Date", "Visit End Time", "Allocated to Staff", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Locations" || sheetName === "Location") {
       headers = ["Branch", "Country", "Emr", "Location", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Roles") {
@@ -676,11 +728,26 @@ function handleAdminCrud(ss, payload, tz) {
       auditDate
     ];
   } else if (sheetName === "Schedule") {
+    // Check if the sheet header is 9 columns or upgrade it if needed
+    var firstRow = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+    var firstRowStr = firstRow.join(" ").toLowerCase();
+    var hasEndCols = (firstRowStr.indexOf("end date") !== -1 || firstRowStr.indexOf("start date") !== -1 || firstRow.length >= 9);
+
+    if (!hasEndCols && sheet.getLastColumn() <= 7) {
+      sheet.getRange(1, 1, 1, 9).setValues([[
+        "Branch", "Location", "Visit Start Date", "Visit Start Time", "Visit End Date", "Visit End Time",
+        "Allocated to Staff", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"
+      ]]);
+      sheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+    }
+
     rowValues = [
       data.branch || "",
       data.location || "",
-      data.visit_date || "",
-      data.visit_time || "",
+      data.visit_start_date || data.visit_date || "",
+      data.visit_start_time || data.visit_time || "09:00",
+      data.visit_end_date || data.visit_start_date || data.visit_date || "",
+      data.visit_end_time || "18:00",
       data.allocated_to_staff || "",
       updatedBy,
       auditDate
