@@ -16,6 +16,7 @@ const app = createApp({
         // Navigation State: 'daily' | 'summary' | 'schedule' | 'roster' | 'admin'
         const currentTab = ref('daily');
         const loading = ref(false);
+        const loadingText = ref('Processing & Syncing...');
         const initialLoading = ref(false);
         const toastMessage = ref('');
         const toastType = ref('success');
@@ -265,21 +266,328 @@ const app = createApp({
 
         watch(() => entryForm.value.status, () => updateEntryHours());
 
-        // Quick Log a missing date
-        const quickLogDate = (dateStr) => {
+        // Safe Time Formatter (Eliminates 1899 Base Date strings from Google Sheets)
+        const formatTimeDisplay = (timeVal) => {
+            if (!timeVal) return '';
+            const str = String(timeVal).trim();
+            if (str.includes('1899') || str.includes('GMT')) {
+                const d = new Date(str);
+                if (!isNaN(d.getTime())) {
+                    const hh = String(d.getHours()).padStart(2, '0');
+                    const mm = String(d.getMinutes()).padStart(2, '0');
+                    return `${hh}:${mm}`;
+                }
+            }
+            const match = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+            if (match) {
+                return `${match[1].padStart(2, '0')}:${match[2]}`;
+            }
+            return str;
+        };
+
+        // Quick Log & Edit Modal State (Focused In-Place Modal Popup for Weekly Breakdown)
+        const quickModal = ref({
+            open: false,
+            isEdit: false,
+            staff_id: null,
+            staff_name: '',
+            employee_code: '',
+            date: '',
+            day_name: '',
+            status: 'Present',
+            location: '',
+            check_in: '07:00',
+            check_out: '17:00',
+            total_hours: 10.0,
+            notes: '',
+            is_week_off_day: false
+        });
+
+        const quickModalLocationSearchQuery = ref('');
+        const showQuickModalLocationDropdown = ref(false);
+
+        const matchedQuickModalLocations = computed(() => {
+            const baseList = sortedLocations.value;
+            if (!quickModalLocationSearchQuery.value) return baseList;
+            const q = quickModalLocationSearchQuery.value.toLowerCase().trim();
+            const tokens = q.split(/\s+/).filter(Boolean);
+            return baseList.filter(loc => {
+                const haystack = `${loc.branch || ''} ${loc.country || ''} ${loc.emr || ''} ${loc.location || ''}`.toLowerCase();
+                return tokens.every(token => haystack.includes(token));
+            });
+        });
+
+        const selectLocationForQuickModal = (loc) => {
+            if (!loc) return;
+            quickModal.value.location = loc.branch;
+            quickModalLocationSearchQuery.value = loc.branch;
+            showQuickModalLocationDropdown.value = false;
+        };
+
+        const updateQuickModalHours = () => {
+            const st = quickModal.value.status;
+            if (st === 'WO' || st === 'OFF' || st === 'Unpaid Leave') {
+                quickModal.value.total_hours = 0.0;
+                return;
+            }
+            if (st === 'Paid Leave') {
+                quickModal.value.total_hours = 8.0;
+                return;
+            }
+            try {
+                if (!quickModal.value.check_in || !quickModal.value.check_out) {
+                    quickModal.value.total_hours = 10.0;
+                    return;
+                }
+                const [inH, inM] = quickModal.value.check_in.split(':').map(Number);
+                const [outH, outM] = quickModal.value.check_out.split(':').map(Number);
+                let diffMin = (outH * 60 + outM) - (inH * 60 + inM);
+                if (diffMin < 0) diffMin += 24 * 60; // Overnight shift
+                quickModal.value.total_hours = Math.round((diffMin / 60) * 10) / 10;
+            } catch (e) {
+                quickModal.value.total_hours = 10.0;
+            }
+        };
+
+        const openQuickLogModal = (day) => {
             if (!canDataEntry.value) {
-                showToast("Access Denied: Data entry is restricted for your role (" + userRole.value + ").", "error");
-                return;
+                return showToast("Access Denied: Data entry is restricted for your role.", "error");
             }
-            if (dateStr > todayStr) {
-                showToast("Future dates cannot be logged.", "error");
-                return;
+            if (day.date > todayStr) {
+                return showToast("Future dates cannot be logged.", "error");
             }
-            entryForm.value.date = dateStr;
-            updateEntryHours();
-            const el = document.getElementById('entry-form-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            showToast(`Selected date: ${dateStr}. Review details and click ADD.`);
+            if (!selectedStaffReport.value) return;
+
+            const defaultLoc = entryForm.value.location || selectedStaffReport.value.display_branch || selectedStaffReport.value.allocated_to || (sortedLocations.value[0] ? sortedLocations.value[0].branch : '');
+            quickModal.value = {
+                open: true,
+                isEdit: false,
+                staff_id: selectedStaffReport.value.id || selectedStaffReport.value.employee_code,
+                staff_name: selectedStaffReport.value.name,
+                employee_code: selectedStaffReport.value.employee_code,
+                date: day.date,
+                day_name: day.day_name,
+                status: 'Present',
+                location: defaultLoc,
+                check_in: '07:00',
+                check_out: '17:00',
+                total_hours: 10.0,
+                notes: '',
+                is_week_off_day: day.isWeekOffDay || false
+            };
+            quickModalLocationSearchQuery.value = defaultLoc;
+            showQuickModalLocationDropdown.value = false;
+        };
+
+        const openEditLogModal = (day) => {
+            if (!canDataEntry.value) {
+                return showToast("Access Denied: Data entry is restricted for your role.", "error");
+            }
+            if (!selectedStaffReport.value) return;
+
+            const cIn = formatTimeDisplay(day.checkIn) || (day.status === 'Present' ? '07:00' : '');
+            const cOut = formatTimeDisplay(day.checkOut) || (day.status === 'Present' ? '17:00' : '');
+            const loc = day.location || entryForm.value.location || selectedStaffReport.value.display_branch || selectedStaffReport.value.allocated_to || (sortedLocations.value[0] ? sortedLocations.value[0].branch : '');
+
+            quickModal.value = {
+                open: true,
+                isEdit: true,
+                staff_id: selectedStaffReport.value.id || selectedStaffReport.value.employee_code,
+                staff_name: selectedStaffReport.value.name,
+                employee_code: selectedStaffReport.value.employee_code,
+                date: day.date,
+                day_name: day.day_name,
+                status: day.status || 'Present',
+                location: loc,
+                check_in: cIn,
+                check_out: cOut,
+                total_hours: (day.hours !== undefined && day.hours !== null) ? day.hours : (day.status === 'Present' ? 10.0 : 0.0),
+                notes: day.notes || '',
+                is_week_off_day: day.isWeekOffDay || false
+            };
+            quickModalLocationSearchQuery.value = loc;
+            showQuickModalLocationDropdown.value = false;
+        };
+
+        const submitQuickModal = async () => {
+            if (!quickModal.value.date) {
+                return showToast("Date is required", "error");
+            }
+            if (!quickModal.value.location) {
+                return showToast("Please select a Branch Location", "error");
+            }
+
+            loading.value = true;
+            loadingText.value = quickModal.value.isEdit ? "Updating attendance record in Google Sheet..." : "Saving attendance entry to Google Sheet...";
+
+            const payload = {
+                action: 'log_attendance',
+                allow_update: true,
+                staff_id: quickModal.value.staff_id,
+                employee_code: quickModal.value.employee_code,
+                name: quickModal.value.staff_name,
+                date: quickModal.value.date,
+                location: quickModal.value.location,
+                status: quickModal.value.status,
+                check_in: quickModal.value.status === 'Present' ? quickModal.value.check_in : '',
+                check_out: quickModal.value.status === 'Present' ? quickModal.value.check_out : '',
+                total_hours: quickModal.value.total_hours,
+                notes: quickModal.value.notes,
+                user_name: currentUser.value ? currentUser.value.name : 'User',
+                user_email: currentUser.value ? currentUser.value.email : ''
+            };
+
+            const url = googleSheetWebAppUrl.value;
+            try {
+                let resData = null;
+                try {
+                    const encoded = encodeURIComponent(JSON.stringify(payload));
+                    const res = await fetch(`${url}?action=log_attendance&payload=${encoded}`);
+                    resData = await res.json();
+                } catch(getErr) {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    resData = await res.json();
+                }
+
+                if (resData && (resData.status === 'success' || resData.status === 'updated')) {
+                    quickModal.value.open = false;
+                    showToast(quickModal.value.isEdit ? "Attendance shift updated successfully!" : "Attendance logged successfully!");
+                    await syncGoogleSheet(true);
+                } else {
+                    showToast((resData && resData.message) ? resData.message : "Error saving attendance", "error");
+                }
+            } catch(err) {
+                console.error("Quick modal submit error:", err);
+                showToast("Network error: " + (err.message || err), "error");
+            } finally {
+                loading.value = false;
+                loadingText.value = "Processing & Syncing...";
+            }
+        };
+
+        // Staff Profile Passport-Size Image Manager
+        const passportModal = ref({
+            open: false,
+            staff: null,
+            previewSrc: null,
+            originalImage: null,
+            scale: 1.0,
+            offsetX: 0,
+            offsetY: 0,
+            isLandscape: false
+        });
+
+        const openPassportManager = (staff) => {
+            passportModal.value = {
+                open: true,
+                staff: staff,
+                previewSrc: (staff.image_url && !staff.image_url.includes('dicebear')) ? staff.image_url : null,
+                originalImage: null,
+                scale: 1.0,
+                offsetX: 0,
+                offsetY: 0,
+                isLandscape: false
+            };
+        };
+
+        const onPassportFileSelected = (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+
+            if (!file.type.startsWith('image/')) {
+                return showToast("Please select a valid image file (JPG, PNG, WebP).", "error");
+            }
+
+            const reader = new FileReader();
+            reader.onload = (loadEvent) => {
+                const img = new Image();
+                img.onload = () => {
+                    passportModal.value.originalImage = img;
+                    passportModal.value.previewSrc = loadEvent.target.result;
+                    passportModal.value.scale = 1.0;
+                    passportModal.value.offsetX = 0;
+                    passportModal.value.offsetY = 0;
+                    passportModal.value.isLandscape = (img.width > img.height);
+                };
+                img.src = loadEvent.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        const savePassportPhoto = async () => {
+            const p = passportModal.value;
+            if (!p.staff) return;
+            if (!p.originalImage && !p.previewSrc) {
+                return showToast("Please select a photo first.", "error");
+            }
+
+            loading.value = true;
+            loadingText.value = "Processing and saving passport-size photo...";
+
+            try {
+                // Standard passport dimensions: 350x450 px (35mm x 45mm, 7:9 ratio)
+                const canvas = document.createElement('canvas');
+                canvas.width = 350;
+                canvas.height = 450;
+                const ctx = canvas.getContext('2d');
+
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, 350, 450);
+
+                if (p.originalImage) {
+                    const img = p.originalImage;
+                    const targetRatio = 350 / 450;
+                    const imgRatio = img.width / img.height;
+
+                    let drawW, drawH;
+                    if (imgRatio > targetRatio) {
+                        drawH = 450 * p.scale;
+                        drawW = drawH * imgRatio;
+                    } else {
+                        drawW = 350 * p.scale;
+                        drawH = drawW / imgRatio;
+                    }
+
+                    const centerX = (350 - drawW) / 2 + p.offsetX;
+                    const centerY = (450 - drawH) / 2 + p.offsetY;
+
+                    ctx.drawImage(img, centerX, centerY, drawW, drawH);
+                } else {
+                    const tempImg = new Image();
+                    tempImg.crossOrigin = "anonymous";
+                    await new Promise((resolve) => {
+                        tempImg.onload = resolve;
+                        tempImg.onerror = resolve;
+                        tempImg.src = p.previewSrc;
+                    });
+                    ctx.drawImage(tempImg, 0, 0, 350, 450);
+                }
+
+                // Compress to web-friendly JPEG data URL
+                const base64Data = canvas.toDataURL('image/jpeg', 0.75);
+
+                const payloadData = {
+                    ...p.staff,
+                    image_url: base64Data
+                };
+
+                const ok = await sendAdminCrud('Staff_data', 'edit', p.staff.row_index, payloadData);
+                if (ok) {
+                    p.staff.image_url = base64Data;
+                    p.staff.has_custom_image = true;
+                    showToast(`Passport photo updated for ${p.staff.name}!`);
+                    passportModal.value.open = false;
+                }
+            } catch (err) {
+                console.error("Passport photo save error:", err);
+                showToast("Failed to process photo: " + (err.message || err), "error");
+            } finally {
+                loading.value = false;
+                loadingText.value = "Processing & Syncing...";
+            }
         };
 
         // -------------------------------------------------------------
@@ -686,8 +994,8 @@ const app = createApp({
                         if (log) {
                             status = log.status || "Present";
                             hours = parseFloat(log.total_hours) || 0.0;
-                            checkIn = log.check_in || "";
-                            checkOut = log.check_out || "";
+                            checkIn = formatTimeDisplay(log.check_in);
+                            checkOut = formatTimeDisplay(log.check_out);
                             location = log.location || staff.allocated_to;
                             notes = log.notes || "";
                         } else {
@@ -715,6 +1023,7 @@ const app = createApp({
                             status,
                             isAutoWO,
                             isWeekOffDay,
+                            hasLog: !!log,
                             checkIn,
                             checkOut,
                             location,
@@ -1325,7 +1634,14 @@ const app = createApp({
                 return showToast("Gmail address is required", "error");
             }
             const op = userModal.value.isEdit ? 'edit' : 'add';
-            const ok = await sendAdminCrud('Users_Data', op, userModal.value.rowIndex, userModal.value.form);
+            loadingText.value = userModal.value.isEdit ? "Updating user access & role in Google Sheet..." : "Granting user access in Google Sheet...";
+            const payload = {
+                user_name: userModal.value.form.user_name || '',
+                gmail: (userModal.value.form.gmail || '').toLowerCase().trim(),
+                country: (userModal.value.form.country || 'UAE').toUpperCase().trim(),
+                role: userModal.value.form.role || 'Data_Entry'
+            };
+            const ok = await sendAdminCrud('Users_Data', op, userModal.value.rowIndex, payload);
             if (ok) userModal.value.open = false;
         };
 
@@ -1761,6 +2077,7 @@ const app = createApp({
         return {
             currentTab,
             loading,
+            loadingText,
             initialLoading,
             todayStr,
             toastMessage,
@@ -1814,6 +2131,22 @@ const app = createApp({
             userCountry,
             showLocationDropdown,
             selectLocationForEntry,
+            // Quick-Log & Edit Modal
+            quickModal,
+            quickModalLocationSearchQuery,
+            showQuickModalLocationDropdown,
+            matchedQuickModalLocations,
+            selectLocationForQuickModal,
+            updateQuickModalHours,
+            openQuickLogModal,
+            openEditLogModal,
+            submitQuickModal,
+            formatTimeDisplay,
+            // Passport Photo Manager
+            passportModal,
+            openPassportManager,
+            onPassportFileSelected,
+            savePassportPhoto,
             // Schedule Module
             scheduleForm,
             scheduleLocationSearchQuery,

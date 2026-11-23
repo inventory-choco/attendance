@@ -52,6 +52,31 @@ function formatDateSafe(val, tz) {
   return str;
 }
 
+function formatTimeSafe(val) {
+  if (!val) return "";
+  if (val instanceof Date) {
+    var hh = ("0" + val.getHours()).slice(-2);
+    var mm = ("0" + val.getMinutes()).slice(-2);
+    return hh + ":" + mm;
+  }
+  var str = val.toString().trim();
+  if (str.indexOf("1899") !== -1 || str.indexOf("GMT") !== -1) {
+    try {
+      var d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        var dhh = ("0" + d.getHours()).slice(-2);
+        var dmm = ("0" + d.getMinutes()).slice(-2);
+        return dhh + ":" + dmm;
+      }
+    } catch(e) {}
+  }
+  var m = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (m) {
+    return ("0" + m[1]).slice(-2) + ":" + m[2];
+  }
+  return str;
+}
+
 function getFormattedAuditDate(tz) {
   var d = new Date();
   try {
@@ -103,26 +128,84 @@ function doGet(e) {
 
   try {
     // 1. Staff_data
+    // Columns: Sl. No. | Employee Code | Employee Name | Designation | Allocated to | Whatsapp | IMAGE | Gmail | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
     var staffSheet = ss.getSheetByName("Staff_data") || ss.getSheets()[0];
     var staffData = staffSheet ? staffSheet.getDataRange().getValues() : [];
+    var staffFormulas = staffSheet ? staffSheet.getDataRange().getFormulas() : [];
     var staffList = [];
+
+    var sHeaders = (staffData.length > 0) ? staffData[0].map(function(h) { return h ? h.toString().toLowerCase().trim() : ""; }) : [];
+    var colSl = sHeaders.indexOf("sl. no.");
+    if (colSl === -1) colSl = sHeaders.indexOf("sl");
+    if (colSl === -1) colSl = 0;
+    
+    var colCode = sHeaders.indexOf("employee code");
+    if (colCode === -1) colCode = sHeaders.indexOf("code");
+    if (colCode === -1) colCode = 1;
+
+    var colName = sHeaders.indexOf("employee name");
+    if (colName === -1) colName = sHeaders.indexOf("name");
+    if (colName === -1) colName = 2;
+
+    var colDesig = sHeaders.indexOf("designation");
+    if (colDesig === -1) colDesig = 3;
+
+    var colAlloc = sHeaders.indexOf("allocated to");
+    if (colAlloc === -1) colAlloc = sHeaders.indexOf("branch");
+    if (colAlloc === -1) colAlloc = 4;
+
+    var colWhatsapp = sHeaders.indexOf("whatsapp");
+    if (colWhatsapp === -1) colWhatsapp = 5;
+
+    var colImage = sHeaders.indexOf("image");
+    if (colImage === -1) colImage = sHeaders.indexOf("photo");
+    if (colImage === -1) colImage = 6;
+
+    var colGmail = sHeaders.indexOf("gmail");
+    if (colGmail === -1) colGmail = sHeaders.indexOf("email");
+    if (colGmail === -1) colGmail = 7;
+
+    var colUpUser = -1;
+    var colUpDate = -1;
+    for (var shi = 0; shi < sHeaders.length; shi++) {
+      if (sHeaders[shi].indexOf("updated by user") !== -1) colUpUser = shi;
+      if (sHeaders[shi].indexOf("updated by date") !== -1) colUpDate = shi;
+    }
+    if (colUpUser === -1) colUpUser = 8;
+    if (colUpDate === -1) colUpDate = 9;
 
     for (var i = 1; i < staffData.length; i++) {
       var row = staffData[i];
-      if (!row[2] || row[2].toString().trim() === "") continue;
+      var empName = (colName !== -1 && row[colName]) ? row[colName].toString().trim() : "";
+      if (!empName) continue;
       
-      var slNo = row[0] ? parseInt(row[0], 10) : i;
-      var empCode = row[1] ? row[1].toString().trim() : ("EMP-" + i);
-      var empName = row[2].toString().trim();
-      var designation = row[3] ? row[3].toString().trim() : "Staff";
-      var allocatedTo = row[4] ? row[4].toString().trim().toUpperCase() : "HEAD OFFICE";
-      var whatsapp = row[5] ? row[5].toString().trim() : "";
-      var imageUrl = row[6] ? row[6].toString().trim() : "";
-      var gmail = row[7] ? row[7].toString().trim().toLowerCase() : "";
-      var updatedBy = (row.length > 8 && row[8]) ? row[8].toString().trim() : "";
-      var updatedDate = (row.length > 9 && row[9]) ? row[9].toString().trim() : "";
+      var slNo = (colSl !== -1 && row[colSl]) ? parseInt(row[colSl], 10) : i;
+      var empCode = (colCode !== -1 && row[colCode]) ? row[colCode].toString().trim() : ("EMP-" + i);
+      var designation = (colDesig !== -1 && row[colDesig]) ? row[colDesig].toString().trim() : "Staff";
+      var allocatedTo = (colAlloc !== -1 && row[colAlloc]) ? row[colAlloc].toString().trim().toUpperCase() : "HEAD OFFICE";
+      var whatsapp = (colWhatsapp !== -1 && row[colWhatsapp]) ? row[colWhatsapp].toString().trim() : "";
+      var imageUrl = (colImage !== -1 && row[colImage]) ? row[colImage].toString().trim() : "";
+      var gmail = (colGmail !== -1 && row[colGmail]) ? row[colGmail].toString().trim().toLowerCase() : "";
+      var updatedBy = (colUpUser !== -1 && row.length > colUpUser && row[colUpUser]) ? row[colUpUser].toString().trim() : "";
+      var updatedDate = (colUpDate !== -1 && row.length > colUpDate && row[colUpDate]) ? row[colUpDate].toString().trim() : "";
 
-      if (!imageUrl || imageUrl === "CellImage") {
+      // Check for formula if cell returned "CellImage" or empty
+      if ((!imageUrl || imageUrl === "CellImage") && staffFormulas.length > i && colImage !== -1 && staffFormulas[i][colImage]) {
+        var fStr = staffFormulas[i][colImage].toString();
+        var fMatch = fStr.match(/IMAGE\s*\(\s*["']([^"']+)["']/i);
+        if (fMatch) imageUrl = fMatch[1];
+      }
+
+      // Convert Google Drive view/open links to direct embeddable links
+      if (imageUrl && imageUrl.indexOf("drive.google.com") !== -1) {
+        var driveIdMatch = imageUrl.match(/\/d\/([a-zA-Z0-9_-]+)/) || imageUrl.match(/id=([a-zA-Z0-9_-]+)/);
+        if (driveIdMatch && driveIdMatch[1]) {
+          imageUrl = "https://lh3.googleusercontent.com/d/" + driveIdMatch[1];
+        }
+      }
+
+      var hasCustomImage = (imageUrl && imageUrl !== "CellImage" && imageUrl.length > 5);
+      if (!hasCustomImage) {
         imageUrl = "https://api.dicebear.com/7.x/initials/svg?seed=" + encodeURIComponent(empName) + "&backgroundColor=0284c7,0d9488,4f46e5&textColor=ffffff";
       }
 
@@ -136,6 +219,7 @@ function doGet(e) {
         allocated_to: allocatedTo,
         whatsapp: whatsapp,
         image_url: imageUrl,
+        has_custom_image: hasCustomImage,
         gmail: gmail,
         updated_by_user: updatedBy,
         updated_by_date: updatedDate
@@ -421,8 +505,8 @@ function doGet(e) {
           name: aRow[3] ? aRow[3].toString().trim() : "",
           location: aRow[4] ? aRow[4].toString().trim() : "",
           status: aRow[5] ? aRow[5].toString().trim() : "Present",
-          check_in: aRow[6] ? aRow[6].toString().trim() : "",
-          check_out: aRow[7] ? aRow[7].toString().trim() : "",
+          check_in: formatTimeSafe(aRow[6]),
+          check_out: formatTimeSafe(aRow[7]),
           total_hours: aRow[8] ? parseFloat(aRow[8]) : 0.0,
           notes: aRow[9] ? aRow[9].toString().trim() : "",
           updated_by_user: (aRow.length > 10 && aRow[10]) ? aRow[10].toString().trim() : "",
@@ -696,25 +780,63 @@ function handleAdminCrud(ss, payload, tz) {
   var rowValues = [];
 
   if (sheetName === "Staff_data") {
-    var nextSl = sheet.getLastRow();
+    var editRowIndex = parseInt(payload.row_index, 10);
+    var sExisting = (operation === "edit" && editRowIndex && editRowIndex <= sheet.getLastRow()) ? sheet.getRange(editRowIndex, 1, 1, Math.max(sheet.getLastColumn(), 10)).getValues()[0] : [];
+
+    var sSl = (data.sl_no !== undefined && data.sl_no !== "") ? data.sl_no : (sExisting[0] || sheet.getLastRow());
+    var sCode = (data.employee_code !== undefined && data.employee_code !== "") ? data.employee_code : (sExisting[1] || "");
+    var sName = (data.name !== undefined && data.name !== "") ? data.name : (sExisting[2] || "");
+    var sDesig = (data.designation !== undefined && data.designation !== "") ? data.designation : (sExisting[3] || "Staff");
+    var sAlloc = (data.allocated_to !== undefined && data.allocated_to !== "") ? data.allocated_to.toString().toUpperCase() : (sExisting[4] || "HEAD OFFICE");
+    var sWhatsapp = (data.whatsapp !== undefined) ? data.whatsapp : (sExisting[5] || "");
+    var sImage = (data.image_url !== undefined && data.image_url !== "") ? data.image_url : (sExisting[6] || "");
+    var sGmail = (data.gmail !== undefined) ? data.gmail.toString().toLowerCase().trim() : (sExisting[7] || "");
+
     rowValues = [
-      data.sl_no || nextSl,
-      data.employee_code || "",
-      data.name || "",
-      data.designation || "Staff",
-      (data.allocated_to || "HEAD OFFICE").toUpperCase(),
-      data.whatsapp || "",
-      data.image_url || "",
-      (data.gmail || "").toLowerCase().trim(),
+      sSl,
+      sCode,
+      sName,
+      sDesig,
+      sAlloc,
+      sWhatsapp,
+      sImage,
+      sGmail,
       updatedBy,
       auditDate
     ];
   } else if (sheetName === "Users_Data") {
+    // Exact schema: Col A: UserName | Col B: Gmail | Col C: Country | Col D: Role | Col E: Updated By User | Col F: Updated By date [dd:mm:yy hh:mm:ss]
+    var editRowIndex = parseInt(payload.row_index, 10);
+    var uExisting = (operation === "edit" && editRowIndex && editRowIndex <= sheet.getLastRow()) ? sheet.getRange(editRowIndex, 1, 1, Math.max(sheet.getLastColumn(), 6)).getValues()[0] : [];
+
+    var uName = (data.user_name !== undefined && data.user_name !== "") ? data.user_name : (uExisting[0] || "");
+    var uGmail = (data.gmail !== undefined && data.gmail !== "") ? data.gmail.toString().toLowerCase().trim() : (uExisting[1] || "").toString().toLowerCase().trim();
+    
+    // Preserve Country (Col C) untouched if not explicitly changed
+    var uCountry = (data.country !== undefined && data.country !== "") ? data.country.toString().toUpperCase().trim() : (uExisting[2] || "UAE").toString().toUpperCase().trim();
+    if (uCountry === "OM") uCountry = "OMAN";
+
+    // Target Column D for Role edits
+    var uRole = (data.role !== undefined && data.role !== "") ? data.role : (uExisting[3] || "Data_Entry");
+
+    // Ensure header row is aligned
+    if (sheet.getLastRow() >= 1) {
+      var headerRow = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 6)).getValues()[0].map(function(h) { return h ? h.toString().toLowerCase().trim() : ""; });
+      var cIdx = headerRow.indexOf("country");
+      var rIdx = headerRow.indexOf("role");
+      if (cIdx === -1 || rIdx === -1 || cIdx > rIdx) {
+        sheet.getRange(1, 1, 1, 6).setValues([[
+          "UserName", "Gmail", "Country", "Role", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"
+        ]]);
+        sheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+      }
+    }
+
     rowValues = [
-      data.user_name || "",
-      (data.gmail || "").toLowerCase().trim(),
-      (data.country || "UAE").toUpperCase().trim(),
-      data.role || "Data_Entry",
+      uName,
+      uGmail,
+      uCountry,
+      uRole,
       updatedBy,
       auditDate
     ];

@@ -52,6 +52,18 @@
         </div>
     </transition>
 
+    <!-- Global Loading Overlay & Pointer-Events Lock (Prevents Accidental Double-Clicks) -->
+    <div v-if="loading"
+         class="fixed inset-0 z-[999] flex flex-col items-center justify-center bg-navy-950/80 backdrop-blur-sm pointer-events-auto select-none transition-all">
+        <div class="bg-navy-900 border border-slate-700/80 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col items-center gap-4 max-w-xs text-center border-emerald-500/30">
+            <div class="w-12 h-12 border-3 border-emerald-500 border-t-transparent rounded-full spinning"></div>
+            <div>
+                <h4 class="text-sm font-bold text-white tracking-wide">{{ loadingText || 'Processing & Syncing...' }}</h4>
+                <p class="text-xs text-slate-400 mt-1">Updating Google Sheet records, please wait...</p>
+            </div>
+        </div>
+    </div>
+
     <!-- ============================================================= -->
     <!-- LOGIN GATE: Full-screen login page (shown when NOT logged in)  -->
     <!-- ============================================================= -->
@@ -651,23 +663,38 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div>
-                                        <button v-if="d.status === 'Missing' && canDataEntry" @click="quickLogDate(d.date)"
-                                                class="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-navy-950 text-[10px] font-bold shadow transition flex items-center gap-1">
+                                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                                        <!-- + Log Button (Opens Quick-Log Modal in-place without scrolling) -->
+                                        <button v-if="d.status === 'Missing' && canDataEntry" @click="openQuickLogModal(d)"
+                                                class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-navy-950 text-[10px] font-bold shadow transition flex items-center gap-1">
                                             <i class="fa-solid fa-plus text-[9px]"></i> Log
                                         </button>
                                         <span v-else-if="d.status === 'Missing'" class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-mono text-[10px] border border-amber-500/20">
                                             Missing
                                         </span>
+
+                                        <!-- Week Off Badge -->
                                         <span v-else-if="d.status === 'WO'" class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono text-[10px] border border-slate-700">
                                             WO
                                         </span>
+
+                                        <!-- Present Hours Badge -->
                                         <span v-else-if="d.status === 'Present'" class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-mono font-bold text-[10px] border border-emerald-500/20">
                                             {{ d.hours }}h
                                         </span>
+
+                                        <!-- Other Status Badge -->
                                         <span v-else class="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[10px] border border-blue-500/20">
                                             {{ d.status }}
                                         </span>
+
+                                        <!-- Edit Action Button (Available on ALL shifts, INCLUDING Weekoffs) -->
+                                        <button v-if="d.status !== 'Missing' && canDataEntry" @click="openEditLogModal(d)"
+                                                title="Edit day shift or modify week off"
+                                                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 text-[10px] font-semibold border border-slate-700 transition flex items-center gap-1">
+                                            <i class="fa-solid fa-pen-to-square text-[9px]"></i>
+                                            <span>Edit</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -879,7 +906,13 @@
                 <div v-for="s in visibleStaffList" :key="s.employee_code"
                      class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex items-center justify-between gap-3 hover:border-slate-700 transition">
                     <div class="flex items-center gap-3">
-                        <img :src="s.image_url" class="w-12 h-12 rounded-xl bg-slate-800 object-cover border border-slate-700" />
+                        <div class="relative group cursor-pointer flex-shrink-0" @click="openPassportManager(s)" title="Click to upload/manage passport photo">
+                            <img :src="s.image_url" class="w-14 h-14 rounded-xl bg-slate-800 object-cover border border-slate-700 group-hover:border-emerald-500 transition shadow" />
+                            <div class="absolute inset-0 bg-navy-950/70 rounded-xl opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center text-emerald-400">
+                                <i class="fa-solid fa-camera text-sm"></i>
+                                <span class="text-[8px] font-bold text-white mt-0.5 uppercase tracking-tighter">Photo</span>
+                            </div>
+                        </div>
                         <div>
                             <div class="font-bold text-sm text-slate-100">{{ s.name }}</div>
                             <div class="text-xs text-slate-400">{{ s.designation }}</div>
@@ -892,8 +925,13 @@
                                 class="px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 text-xs font-semibold flex items-center gap-1 transition">
                             <i class="fa-brands fa-whatsapp"></i> Chat
                         </button>
+                        <button @click="openPassportManager(s)"
+                                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 text-xs font-medium flex items-center gap-1 border border-slate-700 transition"
+                                title="Update passport-size profile photo">
+                            <i class="fa-solid fa-id-badge text-emerald-400"></i> Photo
+                        </button>
                         <button @click="selectStaffForEntry(s); currentTab = 'daily'"
-                                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition">
+                                class="px-2.5 py-1 rounded-lg bg-emerald-600/10 hover:bg-emerald-600/25 text-emerald-400 text-[11px] font-semibold border border-emerald-500/20 transition">
                             Select
                         </button>
                     </div>
@@ -1862,6 +1900,281 @@
                 </button>
                 <button @click="saveRoleModal" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md">
                     {{ roleModal.isEdit ? 'Update Role' : 'Save Role' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- 6. QUICK-LOG & EDIT MODAL (Weekly Attendance Breakdown)        -->
+    <!-- ============================================================= -->
+    <div v-if="quickModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700/80 rounded-3xl w-full max-w-lg p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div>
+                    <h3 class="font-bold text-base text-white flex items-center gap-2">
+                        <i class="fa-solid text-emerald-400" :class="quickModal.isEdit ? 'fa-pen-to-square' : 'fa-calendar-plus'"></i>
+                        <span>{{ quickModal.isEdit ? 'Edit Day Shift' : 'Quick Log Attendance' }}</span>
+                    </h3>
+                    <p class="text-xs text-slate-400 mt-0.5">
+                        <span class="text-slate-200 font-semibold">{{ quickModal.staff_name }}</span>
+                        <span class="text-emerald-400 font-mono ml-1">({{ quickModal.employee_code }})</span>
+                        • <span class="font-mono text-slate-300">{{ quickModal.date }}</span>
+                        <span class="text-slate-400 ml-1">({{ quickModal.day_name }})</span>
+                    </p>
+                </div>
+                <button @click="quickModal.open = false" class="text-slate-400 hover:text-slate-200 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Scheduled Week-Off Notice -->
+            <div v-if="quickModal.is_week_off_day" class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center gap-2.5 text-xs text-amber-300">
+                <i class="fa-solid fa-calendar-xmark text-amber-400 flex-shrink-0"></i>
+                <span>This day is a scheduled <strong>Week Off (WO)</strong>. If the staff worked overtime or an extra shift, set Status to <strong>Present</strong> to credit hours, or keep as <strong>WO</strong>.</span>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <!-- Status Selection -->
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Attendance Status *</label>
+                    <select v-model="quickModal.status" @change="updateQuickModalHours"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 font-semibold focus:border-emerald-500 focus:outline-none">
+                        <option value="Present">Present (Work Shift)</option>
+                        <option value="WO">WO (Scheduled Week Off)</option>
+                        <option value="Sick Leave">Sick Leave</option>
+                        <option value="Annual Leave">Annual Leave</option>
+                        <option value="Unpaid Leave">Unpaid Leave</option>
+                        <option value="Public Holiday">Public Holiday</option>
+                    </select>
+                </div>
+
+                <!-- Shift Time & Hours (Only when Present) -->
+                <div v-if="quickModal.status === 'Present'" class="space-y-3">
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Check In *</label>
+                            <input v-model="quickModal.check_in" @change="updateQuickModalHours" type="time"
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-100 font-mono text-center focus:border-emerald-500 focus:outline-none" />
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Check Out *</label>
+                            <input v-model="quickModal.check_out" @change="updateQuickModalHours" type="time"
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-100 font-mono text-center focus:border-emerald-500 focus:outline-none" />
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">Total Hours</label>
+                            <div class="w-full bg-slate-950/80 border border-slate-700 rounded-xl px-2.5 py-2 text-emerald-400 font-mono font-bold text-center">
+                                {{ quickModal.total_hours }}h
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Branch Location Selector (Combobox with Search & Country Badges) -->
+                <div class="relative">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block font-semibold text-slate-300">
+                            Branch Location <span v-if="quickModal.status === 'Present'" class="text-emerald-400">*</span>
+                        </label>
+                        <span class="text-[10px] text-slate-400">
+                            {{ sortedLocations.length }} Branches Available
+                        </span>
+                    </div>
+
+                    <div class="relative">
+                        <input v-model="quickModalLocationSearchQuery"
+                               @focus="showQuickModalLocationDropdown = true"
+                               @click="showQuickModalLocationDropdown = true"
+                               type="text"
+                               placeholder="Type to search branch name, city, EMR..."
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-semibold focus:border-emerald-500 focus:outline-none pr-8" />
+                        <button v-if="quickModalLocationSearchQuery"
+                                @click="quickModalLocationSearchQuery = ''; quickModal.location = ''; showQuickModalLocationDropdown = true"
+                                type="button"
+                                class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
+                            <i class="fa-solid fa-xmark text-xs"></i>
+                        </button>
+                    </div>
+
+                    <!-- Dropdown List -->
+                    <div v-if="showQuickModalLocationDropdown"
+                         class="absolute z-30 left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-1 divide-y divide-slate-800">
+                        <div v-for="loc in matchedQuickModalLocations" :key="loc.branch"
+                             @click="selectLocationForQuickModal(loc)"
+                             class="p-2.5 hover:bg-slate-800/80 rounded-xl cursor-pointer transition flex items-center justify-between gap-2">
+                            <div>
+                                <div class="font-bold text-slate-100 text-xs flex items-center gap-1.5">
+                                    <span>{{ loc.branch }}</span>
+                                    <span v-if="loc.country" class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold"
+                                          :class="loc.country === 'OMAN' ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'">
+                                        {{ loc.country }}
+                                    </span>
+                                </div>
+                                <div class="text-[10px] text-slate-400 mt-0.5">
+                                    <span v-if="loc.emr" class="font-mono">{{ loc.emr }} • </span>
+                                    <span>{{ loc.location || 'Branch Store' }}</span>
+                                </div>
+                            </div>
+                            <i v-if="quickModal.location === loc.branch" class="fa-solid fa-check text-emerald-400 text-xs"></i>
+                        </div>
+                        <div v-if="matchedQuickModalLocations.length === 0" class="p-3 text-center text-slate-500 text-xs">
+                            No branches found matching "{{ quickModalLocationSearchQuery }}"
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Notes / Remarks -->
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Notes / Reason (Optional)</label>
+                    <input v-model="quickModal.notes" type="text" placeholder="e.g. Covered shift, inventory audit, swapped off"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-emerald-500 focus:outline-none" />
+                </div>
+            </div>
+
+            <!-- Modal Action Buttons -->
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button @click="quickModal.open = false" :disabled="loading"
+                        class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition disabled:opacity-50">
+                    Cancel
+                </button>
+                <button @click="submitQuickModal" :disabled="loading"
+                        class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5 disabled:opacity-50">
+                    <div v-if="loading" class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full spinning"></div>
+                    <i v-else class="fa-solid fa-floppy-disk"></i>
+                    <span>{{ loading ? 'Saving...' : (quickModal.isEdit ? 'Update Shift' : 'Save Attendance') }}</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- 7. PASSPORT PROFILE PHOTO MANAGER MODAL                        -->
+    <!-- ============================================================= -->
+    <div v-if="passportModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/85 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700/80 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4 max-h-[95vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div>
+                    <h3 class="font-bold text-base text-white flex items-center gap-2">
+                        <i class="fa-solid fa-id-card text-emerald-400"></i>
+                        <span>Passport Photo Manager</span>
+                    </h3>
+                    <p class="text-xs text-slate-400 mt-0.5">
+                        <span class="text-slate-200 font-semibold">{{ passportModal.staff?.name }}</span>
+                        <span class="text-emerald-400 font-mono ml-1">({{ passportModal.staff?.employee_code }})</span>
+                    </p>
+                </div>
+                <button @click="passportModal.open = false" class="text-slate-400 hover:text-slate-200 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Landscape Photo Guidance Alert -->
+            <div v-if="passportModal.isLandscape" class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-start gap-2.5 text-xs text-amber-300">
+                <i class="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5 flex-shrink-0"></i>
+                <div>
+                    <div class="font-bold">Wide / Landscape Photo Detected</div>
+                    <div class="text-[11px] text-amber-300/80 mt-0.5">
+                        We have automatically centered and scaled it to standard 35mm × 45mm portrait ratio. Use the zoom and position buttons below to align the face inside the guide oval.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Passport Frame Preview (35mm x 45mm, 7:9 Aspect Ratio) -->
+            <div class="flex flex-col items-center py-2">
+                <div class="relative w-[175px] h-[225px] rounded-2xl border-2 border-emerald-500 shadow-2xl overflow-hidden bg-slate-950 flex items-center justify-center">
+                    <!-- Image Preview -->
+                    <img v-if="passportModal.previewSrc"
+                         :src="passportModal.previewSrc"
+                         class="max-w-none origin-center select-none transition-transform duration-75"
+                         :style="{
+                             width: passportModal.isLandscape ? 'auto' : '100%',
+                             height: passportModal.isLandscape ? '100%' : 'auto',
+                             minWidth: '100%',
+                             minHeight: '100%',
+                             objectFit: 'cover',
+                             transform: `scale(${passportModal.scale}) translate(${passportModal.offsetX}px, ${passportModal.offsetY}px)`
+                         }" />
+                    <div v-else class="text-center p-4 text-slate-500 text-xs">
+                        <i class="fa-solid fa-user-circle text-4xl mb-2 block text-slate-600"></i>
+                        No Photo Selected
+                    </div>
+
+                    <!-- Face Guide Oval Overlay (Standard Passport Frame) -->
+                    <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+                        <div class="w-[125px] h-[165px] rounded-full border-2 border-dashed border-emerald-400/40 flex items-center justify-center">
+                            <div class="w-full h-px bg-emerald-400/20"></div>
+                        </div>
+                    </div>
+
+                    <!-- Ratio Badge -->
+                    <div class="absolute top-2 right-2 bg-navy-950/80 backdrop-blur-sm border border-emerald-500/30 text-emerald-300 font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-full pointer-events-none">
+                        35×45mm
+                    </div>
+                </div>
+                <span class="text-[11px] text-slate-400 mt-2 font-mono">Standard 7:9 Passport Crop (350×450 px)</span>
+            </div>
+
+            <!-- Image File Upload Button -->
+            <div>
+                <label class="block w-full">
+                    <input type="file" accept="image/*" @change="onPassportFileSelected" class="hidden" />
+                    <span class="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-emerald-500 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition shadow">
+                        <i class="fa-solid fa-camera text-emerald-400"></i>
+                        <span>{{ passportModal.previewSrc ? 'Choose Different Photo' : 'Upload Staff Photo' }}</span>
+                    </span>
+                </label>
+            </div>
+
+            <!-- Zoom & Pan Controls (Active when photo is loaded) -->
+            <div v-if="passportModal.previewSrc" class="space-y-3 bg-slate-950/60 p-3 rounded-2xl border border-slate-800 text-xs">
+                <!-- Zoom Slider -->
+                <div>
+                    <div class="flex items-center justify-between text-slate-300 mb-1">
+                        <span class="font-semibold flex items-center gap-1.5">
+                            <i class="fa-solid fa-magnifying-glass-plus text-slate-400"></i> Zoom Scale
+                        </span>
+                        <span class="font-mono text-emerald-400 font-bold">{{ Math.round(passportModal.scale * 100) }}%</span>
+                    </div>
+                    <input type="range" min="0.8" max="2.5" step="0.05" v-model.number="passportModal.scale"
+                           class="w-full accent-emerald-500 cursor-pointer" />
+                </div>
+
+                <!-- Position Adjustments -->
+                <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+                    <span class="text-slate-400 text-[11px]">Nudge Position:</span>
+                    <div class="flex items-center gap-1">
+                        <button type="button" @click="passportModal.offsetX -= 5" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-arrow-left"></i>
+                        </button>
+                        <button type="button" @click="passportModal.offsetY -= 5" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-arrow-up"></i>
+                        </button>
+                        <button type="button" @click="passportModal.offsetY += 5" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-arrow-down"></i>
+                        </button>
+                        <button type="button" @click="passportModal.offsetX += 5" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-arrow-right"></i>
+                        </button>
+                        <button type="button" @click="passportModal.offsetX = 0; passportModal.offsetY = 0; passportModal.scale = 1.0"
+                                class="px-2 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold">
+                            Reset
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Action Buttons -->
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button @click="passportModal.open = false" :disabled="loading"
+                        class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition disabled:opacity-50">
+                    Cancel
+                </button>
+                <button @click="savePassportPhoto" :disabled="loading || !passportModal.previewSrc"
+                        class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5 disabled:opacity-50">
+                    <div v-if="loading" class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full spinning"></div>
+                    <i v-else class="fa-solid fa-cloud-arrow-up"></i>
+                    <span>{{ loading ? 'Saving...' : 'Save & Sync Photo' }}</span>
                 </button>
             </div>
         </div>
