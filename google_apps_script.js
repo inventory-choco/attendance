@@ -92,10 +92,13 @@ function getFormattedAuditDate(tz) {
   }
 }
 
+var _currentCallback = "";
+
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
   var params = (e && e.parameter) ? e.parameter : {};
+  _currentCallback = (params.callback || params.jsonp || "").toString().trim();
   var action = params.action || "get_all";
 
   // Support attendance logging via GET to bypass 302 POST body loss
@@ -105,7 +108,12 @@ function doGet(e) {
       if (!payloadStr) {
         return createJsonResponse({ status: "error", message: "Missing payload parameter" });
       }
-      var payload = (typeof payloadStr === "string") ? JSON.parse(decodeURIComponent(payloadStr)) : payloadStr;
+      var payload = null;
+      try {
+        payload = (typeof payloadStr === "string") ? JSON.parse(decodeURIComponent(payloadStr)) : payloadStr;
+      } catch (decErr) {
+        payload = (typeof payloadStr === "string") ? JSON.parse(payloadStr) : payloadStr;
+      }
       return handleLogAttendance(ss, payload, tz);
     } catch (err) {
       return createJsonResponse({ status: "error", message: "GET log error: " + err.toString() });
@@ -119,7 +127,12 @@ function doGet(e) {
       if (!crudPayloadStr) {
         return createJsonResponse({ status: "error", message: "Missing payload for CRUD" });
       }
-      var crudPayload = (typeof crudPayloadStr === "string") ? JSON.parse(decodeURIComponent(crudPayloadStr)) : crudPayloadStr;
+      var crudPayload = null;
+      try {
+        crudPayload = (typeof crudPayloadStr === "string") ? JSON.parse(decodeURIComponent(crudPayloadStr)) : crudPayloadStr;
+      } catch (decErr) {
+        crudPayload = (typeof crudPayloadStr === "string") ? JSON.parse(crudPayloadStr) : crudPayloadStr;
+      }
       return handleAdminCrud(ss, crudPayload, tz);
     } catch (err) {
       return createJsonResponse({ status: "error", message: "GET CRUD error: " + err.toString() });
@@ -543,6 +556,7 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  _currentCallback = "";
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
 
@@ -955,7 +969,12 @@ function pruneOldAttendanceRecords(sheet, tz) {
 }
 
 function createJsonResponse(data) {
-  return ContentService.createTextOutput(JSON.stringify(data))
+  var jsonString = JSON.stringify(data);
+  if (_currentCallback && /^[a-zA-Z0-9_$.]+$/.test(_currentCallback)) {
+    return ContentService.createTextOutput(_currentCallback + "(" + jsonString + ");")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(jsonString)
     .setMimeType(ContentService.MimeType.JSON);
 }
 

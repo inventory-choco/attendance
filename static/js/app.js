@@ -40,14 +40,120 @@ const app = createApp({
         const isAuthChecking = ref(false);
         const authError = ref('');
 
+        // -------------------------------------------------------------
+        // BULLETPROOF NETWORK LAYER (CORS, Multi-Account & JSONP Shield)
+        // -------------------------------------------------------------
+        const jsonpRequest = (url, timeoutMs = 20000) => {
+            return new Promise((resolve, reject) => {
+                const callbackName = 'sheet_jsonp_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+                let timeoutId = null;
+
+                window[callbackName] = (data) => {
+                    cleanup();
+                    resolve(data);
+                };
+
+                const cleanup = () => {
+                    if (timeoutId) clearTimeout(timeoutId);
+                    delete window[callbackName];
+                    const el = document.getElementById(callbackName);
+                    if (el && el.parentNode) el.parentNode.removeChild(el);
+                };
+
+                timeoutId = setTimeout(() => {
+                    cleanup();
+                    reject(new Error("Network timeout: Google Sheet took too long to respond."));
+                }, timeoutMs);
+
+                const script = document.createElement('script');
+                script.id = callbackName;
+                const sep = url.includes('?') ? '&' : '?';
+                script.src = `${url}${sep}callback=${callbackName}`;
+                script.onerror = () => {
+                    cleanup();
+                    reject(new Error("Unable to reach Google Sheet script (Script tag blocked or offline)."));
+                };
+
+                document.head.appendChild(script);
+            });
+        };
+
+        const apiGet = async (action, queryParams = {}) => {
+            const baseUrl = googleSheetWebAppUrl.value.trim();
+            if (!baseUrl) throw new Error("Google Sheet backend not configured in config.js.");
+
+            const urlObj = new URL(baseUrl);
+            urlObj.searchParams.set('action', action);
+            for (const [k, v] of Object.entries(queryParams)) {
+                if (v !== undefined && v !== null) {
+                    urlObj.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : v);
+                }
+            }
+            urlObj.searchParams.set('_t', Date.now());
+            const targetUrl = urlObj.toString();
+
+            // 1. Fetch with credentials: 'omit' (CRITICAL: prevents Google multi-login CORS redirect)
+            try {
+                const res = await fetch(targetUrl, {
+                    method: 'GET',
+                    mode: 'cors',
+                    credentials: 'omit',
+                    cache: 'no-store'
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && typeof data === 'object') return data;
+                }
+            } catch (fetchErr) {
+                console.warn(`[apiGet] fetch failed for ${action}, trying JSONP fallback:`, fetchErr);
+            }
+
+            // 2. Fallback to JSONP (immune to CORS and cookies)
+            try {
+                return await jsonpRequest(targetUrl);
+            } catch (jsonpErr) {
+                console.error(`[apiGet] JSONP also failed for ${action}:`, jsonpErr);
+                throw new Error("Could not connect to Google Sheet backend. Please check your internet connection.");
+            }
+        };
+
+        const apiPost = async (payload = {}) => {
+            const baseUrl = googleSheetWebAppUrl.value.trim();
+            if (!baseUrl) throw new Error("Google Sheet backend not configured in config.js.");
+
+            // 1. Try POST with simple body (no OPTIONS preflight) and credentials: 'omit'
+            try {
+                const res = await fetch(baseUrl, {
+                    method: 'POST',
+                    mode: 'cors',
+                    credentials: 'omit',
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && typeof data === 'object') return data;
+                }
+            } catch (postErr) {
+                console.warn("[apiPost] POST fetch failed, falling back to GET:", postErr);
+            }
+
+            // 2. Fallback to GET via apiGet if payload fits in URL query
+            const payloadStr = JSON.stringify(payload);
+            const encoded = encodeURIComponent(payloadStr);
+            if (encoded.length < 5000) {
+                return await apiGet(payload.action || 'log_attendance', { payload: encoded });
+            }
+
+            throw new Error("Unable to save data to Google Sheet. Please check your connection.");
+        };
+
         // Computed Role & Permission Helpers
         const userRole = computed(() => {
             if (!currentUser.value) return '';
             const email = (currentUser.value.email || '').toLowerCase().trim();
-            if (email === 'shuhaibonly@gmail.com' || email === 'inventory.choco@gmail.com') {
-                return 'Admin';
-            }
-            return currentUser.value.role || 'Data_Entry';
+            if (currentUser.value.role) return currentUser.value.role;
+            if (email === 'shuhaibonly@gmail.com') return 'Admin';
+            return 'Data_Entry';
         });
         const isAdmin = computed(() => userRole.value === 'Admin');
         const canDataEntry = computed(() => userRole.value === 'Admin' || userRole.value === 'Data_Entry');
@@ -437,20 +543,8 @@ const app = createApp({
                 user_email: currentUser.value ? currentUser.value.email : ''
             };
 
-            const url = googleSheetWebAppUrl.value;
             try {
-                let resData = null;
-                try {
-                    const encoded = encodeURIComponent(JSON.stringify(payload));
-                    const res = await fetch(`${url}?action=log_attendance&payload=${encoded}`);
-                    resData = await res.json();
-                } catch(getErr) {
-                    const res = await fetch(url, {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-                    resData = await res.json();
-                }
+                const resData = await apiPost(payload);
 
                 if (resData && (resData.status === 'success' || resData.status === 'updated')) {
                     quickModal.value.open = false;
@@ -686,8 +780,7 @@ const app = createApp({
             sheetConnectionStatus.value = 'connecting';
 
             try {
-                const res = await fetch(`${url}?action=get_all`);
-                const data = await res.json();
+                const data = await apiGet('get_all');
 
                 if (data.status === 'success') {
                     if (data.staff && Array.isArray(data.staff)) {
@@ -803,19 +896,7 @@ const app = createApp({
                     return;
                 }
 
-                let data = null;
-                try {
-                    const encoded = encodeURIComponent(JSON.stringify(payload));
-                    const res = await fetch(`${googleSheetWebAppUrl.value}?action=log_attendance&payload=${encoded}`);
-                    data = await res.json();
-                } catch (getErr) {
-                    console.warn("GET submission failed, trying POST:", getErr);
-                    const postRes = await fetch(googleSheetWebAppUrl.value, {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-                    data = await postRes.json();
-                }
+                const data = await apiPost(payload);
 
                 if (data && data.status === 'duplicate') {
                     if (confirm(`Duplicate Entry: Attendance is already logged for ${entryForm.value.staff_name} on ${entryForm.value.date}.\n\nDo you want to update this existing record?`)) {
@@ -1529,18 +1610,7 @@ const app = createApp({
             };
 
             try {
-                let resData = null;
-                try {
-                    const encoded = encodeURIComponent(JSON.stringify(payload));
-                    const res = await fetch(`${url}?action=admin_crud&payload=${encoded}`);
-                    resData = await res.json();
-                } catch(getErr) {
-                    const res = await fetch(url, {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-                    resData = await res.json();
-                }
+                const resData = await apiPost(payload);
 
                 if (resData && resData.status === 'success') {
                     await syncGoogleSheet(true);
@@ -1830,11 +1900,10 @@ const app = createApp({
                     return;
                 }
 
-                const res = await fetch(`${url}?action=get_all`);
-                const data = await res.json();
+                const data = await apiGet('get_all');
 
-                if (data.status !== 'success') {
-                    authError.value = 'Could not connect to backend. Try again later.';
+                if (!data || data.status !== 'success') {
+                    authError.value = 'Could not load data from Google Sheet. Please try again.';
                     isAuthChecking.value = false;
                     return;
                 }
@@ -1911,7 +1980,7 @@ const app = createApp({
 
             } catch (err) {
                 console.error("Auth Error:", err);
-                authError.value = 'Authentication failed. Please try again.';
+                authError.value = `Authentication failed: ${err.message || 'Could not connect to Google Sheet. Check connection.'}`;
             } finally {
                 isAuthChecking.value = false;
             }
@@ -1930,9 +1999,9 @@ const app = createApp({
                 }
 
                 const em = (userData.email || '').toLowerCase().trim();
-                if (em === 'shuhaibonly@gmail.com' || em === 'inventory.choco@gmail.com') {
-                    userData.role = 'Admin';
-                    userData.country = 'UAE';
+                if (em === 'shuhaibonly@gmail.com') {
+                    userData.role = userData.role || 'Admin';
+                    userData.country = userData.country || 'ALL';
                 }
 
                 currentUser.value = userData;
@@ -1946,69 +2015,71 @@ const app = createApp({
                     return false;
                 }
 
-                const res = await fetch(`${url}?action=get_all`);
-                const data = await res.json();
+                try {
+                    const data = await apiGet('get_all');
 
-                if (data.status === 'success') {
-                    if (data.staff && Array.isArray(data.staff)) staffList.value = data.staff;
-                    if (data.locations && Array.isArray(data.locations)) locations.value = data.locations.map(normalizeLocItem);
-                    if (data.attendance && Array.isArray(data.attendance)) attendanceLogs.value = data.attendance;
-                    if (data.users && Array.isArray(data.users)) usersList.value = data.users.map(normalizeUserItem);
-                    if (data.allocations && Array.isArray(data.allocations)) allocationsList.value = data.allocations;
-                    if (data.schedules && Array.isArray(data.schedules)) schedulesList.value = data.schedules;
-                    if (data.roles && Array.isArray(data.roles)) rolesList.value = data.roles;
+                    if (data && data.status === 'success') {
+                        if (data.staff && Array.isArray(data.staff)) staffList.value = data.staff;
+                        if (data.locations && Array.isArray(data.locations)) locations.value = data.locations.map(normalizeLocItem);
+                        if (data.attendance && Array.isArray(data.attendance)) attendanceLogs.value = data.attendance;
+                        if (data.users && Array.isArray(data.users)) usersList.value = data.users.map(normalizeUserItem);
+                        if (data.allocations && Array.isArray(data.allocations)) allocationsList.value = data.allocations;
+                        if (data.schedules && Array.isArray(data.schedules)) schedulesList.value = data.schedules;
+                        if (data.roles && Array.isArray(data.roles)) rolesList.value = data.roles;
 
-                    const userEmail = (userData.email || '').toLowerCase().trim();
-                    let matchedUser = usersList.value.find(u =>
-                        u.gmail && u.gmail.toLowerCase().trim() === userEmail
-                    );
-
-                    if (!matchedUser && usersList.value.length === 0) {
-                        const legacyStaff = staffList.value.find(s =>
-                            (s.gmail || '').toLowerCase().trim() === userEmail
-                        );
-                        if (legacyStaff) {
-                            matchedUser = {
-                                user_name: legacyStaff.name,
-                                gmail: userEmail,
-                                role: userData.role || (userEmail.includes('shuhaib') ? 'Admin' : 'Data_Entry')
-                            };
-                        }
-                    }
-
-                    if (matchedUser) {
-                        const role = matchedUser.role || userData.role || 'Data_Entry';
-                        const matchedStaff = staffList.value.find(s =>
-                            s.name && matchedUser.user_name &&
-                            s.name.toLowerCase().trim() === matchedUser.user_name.toLowerCase().trim()
+                        const userEmail = (userData.email || '').toLowerCase().trim();
+                        let matchedUser = usersList.value.find(u =>
+                            u.gmail && u.gmail.toLowerCase().trim() === userEmail
                         );
 
-                        currentUser.value.role = role;
-                        currentUser.value.userName = matchedUser.user_name || userData.userName;
-                        currentUser.value.country = (matchedUser.country || 'UAE').toUpperCase().trim();
-                        currentUser.value.staff = matchedStaff || userData.staff || null;
-
-                        localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
-                        sheetConnectionStatus.value = 'connected';
-                        sheetLastSyncTime.value = new Date().toLocaleTimeString();
-
-                        if (canDataEntry.value && matchedStaff && !entryForm.value.staff_name) {
-                            selectStaffForEntry(matchedStaff);
+                        if (!matchedUser && usersList.value.length === 0) {
+                            const legacyStaff = staffList.value.find(s =>
+                                (s.gmail || '').toLowerCase().trim() === userEmail
+                            );
+                            if (legacyStaff) {
+                                matchedUser = {
+                                    user_name: legacyStaff.name,
+                                    gmail: userEmail,
+                                    role: userData.role || (userEmail.includes('shuhaib') ? 'Admin' : 'Data_Entry')
+                                };
+                            }
                         }
 
-                        initialLoading.value = false;
-                        return true;
-                    } else {
-                        currentUser.value = null;
-                        localStorage.removeItem('attendance_auth_user');
-                        staffList.value = [];
-                        locations.value = [];
-                        attendanceLogs.value = [];
-                        usersList.value = [];
-                        initialLoading.value = false;
-                        return false;
+                        if (matchedUser) {
+                            const role = matchedUser.role || userData.role || 'Data_Entry';
+                            const matchedStaff = staffList.value.find(s =>
+                                s.name && matchedUser.user_name &&
+                                s.name.toLowerCase().trim() === matchedUser.user_name.toLowerCase().trim()
+                            );
+
+                            currentUser.value.role = role;
+                            currentUser.value.userName = matchedUser.user_name || userData.userName;
+                            currentUser.value.country = (matchedUser.country || 'UAE').toUpperCase().trim();
+                            currentUser.value.staff = matchedStaff || userData.staff || null;
+
+                            localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
+                            sheetConnectionStatus.value = 'connected';
+                            sheetLastSyncTime.value = new Date().toLocaleTimeString();
+
+                            if (canDataEntry.value && matchedStaff && !entryForm.value.staff_name) {
+                                selectStaffForEntry(matchedStaff);
+                            }
+
+                            initialLoading.value = false;
+                            return true;
+                        } else {
+                            currentUser.value = null;
+                            localStorage.removeItem('attendance_auth_user');
+                            staffList.value = [];
+                            locations.value = [];
+                            attendanceLogs.value = [];
+                            usersList.value = [];
+                            initialLoading.value = false;
+                            return false;
+                        }
                     }
-                } else {
+                } catch (netErr) {
+                    console.warn("Could not refresh session from sheet on boot, keeping cached session:", netErr);
                     initialLoading.value = false;
                     return true;
                 }
