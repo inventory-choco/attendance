@@ -164,7 +164,7 @@
 
                     <!-- Google User Profile & Role Badge & Sign Out -->
                     <div class="flex items-center gap-2 pl-2 border-l border-slate-800">
-                        <img v-if="currentUser.picture" :src="currentUser.picture" class="w-8 h-8 rounded-full border border-emerald-500" />
+                        <img v-if="currentUser.picture" :src="currentUser.picture" @error="$event.target.src = getDiceBearUrl(currentUser.name)" class="w-8 h-8 rounded-full border border-emerald-500" />
                         <div class="hidden md:block text-left text-[11px] leading-tight">
                             <div class="flex items-center gap-1.5">
                                 <span class="font-bold text-slate-200">{{ currentUser.name }}</span>
@@ -312,7 +312,7 @@
                              @click="selectStaffForEntry(s)"
                              class="p-2.5 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between transition">
                             <div class="flex items-center gap-2.5">
-                                <img :src="s.image_url" class="w-7 h-7 rounded-full bg-slate-800 object-cover border border-slate-700" />
+                                <img :src="s.image_url" @error="$event.target.src = getDiceBearUrl(s.name)" class="w-7 h-7 rounded-full bg-slate-800 object-cover border border-slate-700" />
                                 <div>
                                     <div class="font-bold text-slate-100">{{ s.name }}</div>
                                     <div class="text-[10px] text-slate-400">{{ s.designation }} • {{ s.allocated_to }}</div>
@@ -547,7 +547,7 @@
                 <!-- Selected Staff Header Card -->
                 <div class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div class="flex items-center gap-4">
-                        <img :src="selectedStaffReport.image_url" class="w-14 h-14 rounded-2xl bg-slate-800 object-cover border border-slate-700 shadow-md" />
+                        <img :src="selectedStaffReport.image_url" @error="$event.target.src = getDiceBearUrl(selectedStaffReport.name)" class="w-14 h-14 rounded-2xl bg-slate-800 object-cover border border-slate-700 shadow-md" />
                         <div>
                             <div class="flex items-center gap-2">
                                 <h3 class="text-base sm:text-lg font-bold text-white">{{ selectedStaffReport.name }}</h3>
@@ -848,7 +848,7 @@
                                 </td>
                                 <td class="py-3 px-4">
                                     <div class="flex items-center gap-2">
-                                        <img :src="staff.image_url" class="w-7 h-7 rounded-full bg-slate-800 object-cover border border-slate-700" />
+                                        <img :src="staff.image_url" @error="$event.target.src = getDiceBearUrl(staff.name)" class="w-7 h-7 rounded-full bg-slate-800 object-cover border border-slate-700" />
                                         <div>
                                             <div class="font-bold text-slate-200">{{ staff.name }}</div>
                                             <div class="text-[10px] text-slate-400">{{ staff.designation }}</div>
@@ -907,7 +907,7 @@
                      class="bg-navy-900 rounded-2xl p-4 border border-slate-800 shadow-md flex items-center justify-between gap-3 hover:border-slate-700 transition">
                     <div class="flex items-center gap-3">
                         <div class="relative group cursor-pointer flex-shrink-0" @click="openPassportManager(s)" title="Click to upload/manage passport photo">
-                            <img :src="s.image_url" class="w-14 h-14 rounded-xl bg-slate-800 object-cover border border-slate-700 group-hover:border-emerald-500 transition shadow" />
+                            <img :src="s.image_url" @error="$event.target.src = getDiceBearUrl(s.name)" class="w-14 h-14 rounded-xl bg-slate-800 object-cover border border-slate-700 group-hover:border-emerald-500 transition shadow" />
                             <div class="absolute inset-0 bg-navy-950/70 rounded-xl opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center text-emerald-400">
                                 <i class="fa-solid fa-camera text-sm"></i>
                                 <span class="text-[8px] font-bold text-white mt-0.5 uppercase tracking-tighter">Photo</span>
@@ -1096,18 +1096,77 @@
                                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-mono" />
                     </div>
 
-                    <!-- 7. Staff Assigned -->
-                    <div class="sm:col-span-2 lg:col-span-4">
-                        <label class="block font-semibold text-slate-300 mb-1.5">
-                            Allocated to Staff <span class="text-emerald-400">*</span>
-                        </label>
-                        <select v-model="scheduleForm.allocated_to_staff"
-                                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none font-semibold">
-                            <option value="" disabled>-- Select Staff Member --</option>
-                            <option v-for="s in visibleStaffList" :key="s.employee_code" :value="s.name + ' (' + s.employee_code + ')'">
-                                {{ s.name }} (Code: {{ s.employee_code }}) • {{ s.designation }} • {{ s.allocated_to }}
-                            </option>
-                        </select>
+                    <!-- 7. Multi-Staff Allocation Selector -->
+                    <div class="sm:col-span-2 lg:col-span-4 bg-slate-950/60 p-4 rounded-2xl border border-slate-800 space-y-3">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+                            <div>
+                                <label class="block font-semibold text-slate-200">
+                                    Allocated to Staff <span class="text-emerald-400">*</span>
+                                </label>
+                                <p class="text-[11px] text-slate-400">
+                                    Select one or more staff members to visit this branch. (Duplicate visits to different branches at the same time are automatically blocked).
+                                </p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold"
+                                      :class="scheduleForm.allocated_staff_list.length > 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'">
+                                    {{ scheduleForm.allocated_staff_list.length }} Selected
+                                </span>
+                                <button type="button" @click="selectAllStaffInSchedule"
+                                        class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 text-[11px] font-semibold transition">
+                                    Select All
+                                </button>
+                                <button type="button" @click="clearAllStaffInSchedule"
+                                        class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-rose-400 text-[11px] font-semibold transition">
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Selected Staff Badges -->
+                        <div v-if="scheduleForm.allocated_staff_list.length > 0" class="flex flex-wrap gap-1.5 pt-1">
+                            <span v-for="empCode in scheduleForm.allocated_staff_list" :key="empCode"
+                                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
+                                <span>{{ (visibleStaffList.find(s => String(s.employee_code).trim() === empCode) || {}).name || empCode }}</span>
+                                <span class="text-[10px] text-emerald-400/70 font-mono">({{ empCode }})</span>
+                                <button type="button" @click="toggleStaffInSchedule({ employee_code: empCode })"
+                                        class="hover:text-rose-300 ml-0.5 text-xs">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </span>
+                        </div>
+
+                        <!-- Search Filter for Staff List -->
+                        <div class="relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
+                            <input v-model="scheduleStaffSearchQuery" type="text"
+                                   placeholder="Filter staff by name, code, designation..."
+                                   class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none placeholder-slate-500" />
+                        </div>
+
+                        <!-- Scrollable Grid of Staff Checkbox Cards -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+                            <div v-for="s in matchedScheduleStaffList" :key="s.employee_code"
+                                 @click="toggleStaffInSchedule(s)"
+                                 class="p-2.5 rounded-xl border cursor-pointer transition flex items-center justify-between gap-2.5 select-none"
+                                 :class="isStaffSelectedInSchedule(s) ? 'bg-emerald-500/10 border-emerald-500/60 shadow-sm' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'">
+                                <div class="flex items-center gap-2.5 min-w-0">
+                                    <div class="w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition"
+                                         :class="isStaffSelectedInSchedule(s) ? 'bg-emerald-500 border-emerald-400 text-navy-950' : 'border-slate-600 bg-slate-950'">
+                                        <i v-if="isStaffSelectedInSchedule(s)" class="fa-solid fa-check text-[10px] font-bold"></i>
+                                    </div>
+                                    <img :src="s.image_url" @error="$event.target.src = getDiceBearUrl(s.name)"
+                                         class="w-7 h-7 rounded-lg bg-slate-800 object-cover border border-slate-700 flex-shrink-0" />
+                                    <div class="min-w-0">
+                                        <div class="font-bold text-xs text-slate-100 truncate">{{ s.name }}</div>
+                                        <div class="text-[10px] text-slate-400 truncate">{{ s.employee_code }} • {{ s.designation }}</div>
+                                    </div>
+                                </div>
+                                <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 flex-shrink-0">
+                                    {{ s.allocated_to }}
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1199,9 +1258,13 @@
                                 </td>
                                 <td class="py-3 px-4 text-slate-300">{{ sc.location || '---' }}</td>
                                 <td class="py-3 px-4">
-                                    <div class="font-bold text-slate-200 flex items-center gap-1.5">
-                                        <i class="fa-solid fa-user-check text-slate-500"></i>
-                                        <span>{{ sc.allocated_to_staff }}</span>
+                                    <div class="flex flex-wrap gap-1.5 max-w-xs">
+                                        <span v-for="stf in (sc.allocated_to_staff || '').split(',').map(s => s.trim()).filter(Boolean)" :key="stf"
+                                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/40 text-emerald-300 border border-emerald-800/60 text-[11px] font-medium">
+                                            <i class="fa-solid fa-user-check text-[9px] text-emerald-400"></i>
+                                            <span>{{ stf }}</span>
+                                        </span>
+                                        <span v-if="!sc.allocated_to_staff" class="text-slate-500 italic text-[11px]">Unassigned</span>
                                     </div>
                                 </td>
                                 <td class="py-3 px-4 text-slate-400 text-[11px]">
@@ -1213,11 +1276,12 @@
                                 <td class="py-3 px-4 text-center">
                                     <div class="flex items-center justify-center gap-1.5">
                                         <button @click="editSchedule(sc)" title="Edit Visit"
-                                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition">
+                                                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 font-semibold text-xs transition flex items-center gap-1 border border-slate-700">
                                             <i class="fa-solid fa-pen-to-square"></i>
+                                            <span>Edit</span>
                                         </button>
                                         <button @click="deleteSchedule(sc)" title="Delete Visit"
-                                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition">
+                                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition border border-slate-700">
                                             <i class="fa-solid fa-trash-can"></i>
                                         </button>
                                     </div>
@@ -1342,7 +1406,7 @@
                                     </td>
                                     <td class="py-3 px-4 font-bold text-slate-200">
                                         <div class="flex items-center gap-2">
-                                            <img :src="s.image_url" class="w-6 h-6 rounded-full bg-slate-800 object-cover border border-slate-700" />
+                                            <img :src="s.image_url" @error="$event.target.src = getDiceBearUrl(s.name)" class="w-6 h-6 rounded-full bg-slate-800 object-cover border border-slate-700" />
                                             <span>{{ s.name }}</span>
                                         </div>
                                     </td>

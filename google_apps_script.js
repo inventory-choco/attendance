@@ -197,16 +197,30 @@ function doGet(e) {
       var designation = (colDesig !== -1 && row[colDesig]) ? row[colDesig].toString().trim() : "Staff";
       var allocatedTo = (colAlloc !== -1 && row[colAlloc]) ? row[colAlloc].toString().trim().toUpperCase() : "HEAD OFFICE";
       var whatsapp = (colWhatsapp !== -1 && row[colWhatsapp]) ? row[colWhatsapp].toString().trim() : "";
-      var imageUrl = (colImage !== -1 && row[colImage]) ? row[colImage].toString().trim() : "";
+      var rawImg = (colImage !== -1 && row[colImage]) ? row[colImage] : null;
+      var imageUrl = "";
+      if (rawImg) {
+        if (typeof rawImg === "object" && typeof rawImg.getContentUrl === "function") {
+          try { imageUrl = rawImg.getContentUrl(); } catch(e){}
+        } else if (typeof rawImg === "object" && typeof rawImg.getUrl === "function") {
+          try { imageUrl = rawImg.getUrl(); } catch(e){}
+        } else {
+          imageUrl = rawImg.toString().trim();
+        }
+      }
+      if (imageUrl === "[object Object]" || imageUrl === "CellImage") {
+        imageUrl = "";
+      }
+
       var gmail = (colGmail !== -1 && row[colGmail]) ? row[colGmail].toString().trim().toLowerCase() : "";
       var updatedBy = (colUpUser !== -1 && row.length > colUpUser && row[colUpUser]) ? row[colUpUser].toString().trim() : "";
       var updatedDate = (colUpDate !== -1 && row.length > colUpDate && row[colUpDate]) ? row[colUpDate].toString().trim() : "";
 
-      // Check for formula if cell returned "CellImage" or empty
-      if ((!imageUrl || imageUrl === "CellImage") && staffFormulas.length > i && colImage !== -1 && staffFormulas[i][colImage]) {
+      // Check for formula if cell returned "CellImage", "[object Object]" or empty
+      if (!imageUrl && staffFormulas.length > i && colImage !== -1 && staffFormulas[i][colImage]) {
         var fStr = staffFormulas[i][colImage].toString();
-        var fMatch = fStr.match(/IMAGE\s*\(\s*["']([^"']+)["']/i);
-        if (fMatch) imageUrl = fMatch[1];
+        var fMatch = fStr.match(/IMAGE\s*\(\s*["']?([^"',)]+)["']?/i);
+        if (fMatch) imageUrl = fMatch[1].trim();
       }
 
       // Convert Google Drive view/open links to direct embeddable links
@@ -217,7 +231,7 @@ function doGet(e) {
         }
       }
 
-      var hasCustomImage = (imageUrl && imageUrl !== "CellImage" && imageUrl.length > 5);
+      var hasCustomImage = (imageUrl && imageUrl !== "CellImage" && imageUrl !== "[object Object]" && imageUrl.length > 5);
       if (!hasCustomImage) {
         imageUrl = "https://api.dicebear.com/7.x/initials/svg?seed=" + encodeURIComponent(empName) + "&backgroundColor=0284c7,0d9488,4f46e5&textColor=ffffff";
       }
@@ -390,9 +404,9 @@ function doGet(e) {
           var sBranch = sRow[colSBranch] ? sRow[colSBranch].toString().trim() : "";
           var sLoc = (colSLoc !== -1 && sRow[colSLoc]) ? sRow[colSLoc].toString().trim() : "";
           var sStartDate = (colSStartDate !== -1 && sRow[colSStartDate]) ? formatDateSafe(sRow[colSStartDate], tz) : "";
-          var sStartTime = (colSStartTime !== -1 && sRow[colSStartTime]) ? sRow[colSStartTime].toString().trim() : "09:00";
+          var sStartTime = (colSStartTime !== -1 && sRow[colSStartTime]) ? formatTimeSafe(sRow[colSStartTime]) : "09:00";
           var sEndDate = (colSEndDate !== -1 && sRow[colSEndDate]) ? formatDateSafe(sRow[colSEndDate], tz) : sStartDate;
-          var sEndTime = (colSEndTime !== -1 && sRow[colSEndTime]) ? sRow[colSEndTime].toString().trim() : "18:00";
+          var sEndTime = (colSEndTime !== -1 && sRow[colSEndTime]) ? formatTimeSafe(sRow[colSEndTime]) : "18:00";
           var sStaff = (colSStaff !== -1 && sRow[colSStaff]) ? sRow[colSStaff].toString().trim() : "";
           var sUpdatedBy = (colSUpUser !== -1 && sRow[colSUpUser]) ? sRow[colSUpUser].toString().trim() : "";
           var sUpdatedDate = (colSUpDate !== -1 && sRow[colSUpDate]) ? sRow[colSUpDate].toString().trim() : "";
@@ -602,19 +616,72 @@ function doPost(e) {
 }
 
 /**
+ * Process staff photo: Saves base64 images to Google Drive CDN, formats Drive URLs
+ */
+function processStaffImage(imageUrl, empCode, empName) {
+  if (!imageUrl || typeof imageUrl !== "string") return imageUrl || "";
+  imageUrl = imageUrl.trim();
+
+  // If already a web URL
+  if (imageUrl.indexOf("http://") === 0 || imageUrl.indexOf("https://") === 0) {
+    if (imageUrl.indexOf("drive.google.com") !== -1) {
+      var dMatch = imageUrl.match(/\/d\/([a-zA-Z0-9_-]+)/) || imageUrl.match(/id=([a-zA-Z0-9_-]+)/);
+      if (dMatch && dMatch[1]) {
+        return "https://lh3.googleusercontent.com/d/" + dMatch[1];
+      }
+    }
+    return imageUrl;
+  }
+
+  // If base64 data URL, upload to Google Drive for fast global CDN access
+  if (imageUrl.indexOf("data:image") === 0) {
+    try {
+      var parts = imageUrl.split(",");
+      var meta = parts[0];
+      var base64Content = parts[1];
+      var mimeType = meta.split(";")[0].split(":")[1] || "image/jpeg";
+      var ext = (mimeType.indexOf("png") !== -1) ? ".png" : ".jpg";
+      var decodedBytes = Utilities.base64Decode(base64Content);
+      var safeName = (empName || "Staff").toString().replace(/[^a-zA-Z0-9]/g, "_");
+      var filename = "Staff_" + (empCode || "0000") + "_" + safeName + ext;
+      var blob = Utilities.newBlob(decodedBytes, mimeType, filename);
+
+      var folderName = "Staff_Attendance_Photos";
+      var folders = DriveApp.getFoldersByName(folderName);
+      var targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+      targetFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+      var driveFile = targetFolder.createFile(blob);
+      driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      var fileId = driveFile.getId();
+      return "https://lh3.googleusercontent.com/d/" + fileId;
+    } catch (e) {
+      return imageUrl;
+    }
+  }
+
+  return imageUrl;
+}
+
+/**
  * Log Attendance with Audit Trail (Preserves all existing records)
  */
 function handleLogAttendance(ss, payload, tz) {
-  var targetSheet = ss.getSheetByName("Attendance_data");
-  if (!targetSheet) {
-    targetSheet = ss.insertSheet("Attendance_data");
-    targetSheet.appendRow([
-      "Timestamp", "Date", "Employee Code", "Employee Name", "Branch",
-      "Status", "Start Time", "End Time", "Total Hours", "Notes",
-      "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"
-    ]);
-    targetSheet.getRange("A1:L1").setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
-  }
+  var lock = LockService.getScriptLock();
+  var gotLock = false;
+  try { gotLock = lock.tryLock(25000); } catch(e){}
+
+  try {
+    var targetSheet = ss.getSheetByName("Attendance_data");
+    if (!targetSheet) {
+      targetSheet = ss.insertSheet("Attendance_data");
+      targetSheet.appendRow([
+        "Timestamp", "Date", "Employee Code", "Employee Name", "Branch",
+        "Status", "Start Time", "End Time", "Total Hours", "Notes",
+        "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"
+      ]);
+      targetSheet.getRange("A1:L1").setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+    }
 
   var dateStr = payload.date ? payload.date.toString().trim() : "";
   var empCode = payload.employee_code ? payload.employee_code.toString().trim() : "";
@@ -725,6 +792,11 @@ function handleLogAttendance(ss, payload, tz) {
       message: "Added attendance for " + empName + " on " + dateStr
     });
   }
+  } finally {
+    if (gotLock) {
+      try { lock.releaseLock(); } catch(e){}
+    }
+  }
 }
 
 /**
@@ -738,6 +810,11 @@ function handleLogAttendance(ss, payload, tz) {
  * }
  */
 function handleAdminCrud(ss, payload, tz) {
+  var lock = LockService.getScriptLock();
+  var gotLock = false;
+  try { gotLock = lock.tryLock(25000); } catch(e){}
+
+  try {
   var sheetName = payload.sheet_name;
   var operation = payload.operation;
   var updatedBy = payload.updated_by_user || "Admin";
@@ -804,6 +881,7 @@ function handleAdminCrud(ss, payload, tz) {
     var sAlloc = (data.allocated_to !== undefined && data.allocated_to !== "") ? data.allocated_to.toString().toUpperCase() : (sExisting[4] || "HEAD OFFICE");
     var sWhatsapp = (data.whatsapp !== undefined) ? data.whatsapp : (sExisting[5] || "");
     var sImage = (data.image_url !== undefined && data.image_url !== "") ? data.image_url : (sExisting[6] || "");
+    sImage = processStaffImage(sImage, sCode, sName);
     var sGmail = (data.gmail !== undefined) ? data.gmail.toString().toLowerCase().trim() : (sExisting[7] || "");
 
     rowValues = [
@@ -937,6 +1015,11 @@ function handleAdminCrud(ss, payload, tz) {
   }
 
   return createJsonResponse({ status: "error", message: "Unknown operation: " + operation });
+  } finally {
+    if (gotLock) {
+      try { lock.releaseLock(); } catch(e){}
+    }
+  }
 }
 
 function pruneOldAttendanceRecords(sheet, tz) {

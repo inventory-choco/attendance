@@ -163,7 +163,7 @@ const app = createApp({
             return (currentUser.value.country || '').toUpperCase().trim();
         });
 
-        // Staff Visibility based on User_Allocation sheet
+        // Staff Visibility strictly based on User_Allocation sheet
         // Admin & Report_Only see ALL staff; Data_Entry users only see their allocated staff
         const visibleStaffList = computed(() => {
             if (staffList.value.length === 0) return [];
@@ -174,8 +174,9 @@ const app = createApp({
             if (!currentUser.value) return [];
             const myEmpCode = currentUser.value.staff ? (currentUser.value.staff.employee_code || '').toString().trim() : '';
             const myName = (currentUser.value.userName || currentUser.value.name || '').toLowerCase().trim();
+            const myEmail = (currentUser.value.email || '').toLowerCase().trim();
 
-            // Find allocation rows where current user is the assigned controller
+            // Find allocation rows where current user is the assigned controller (Allocated to Employee Name / Code)
             const myAllocRows = allocationsList.value.filter(al => {
                 const targetCode = (al.allocated_to_code || '').toString().trim();
                 const targetName = (al.allocated_to_name || '').toLowerCase().trim();
@@ -184,21 +185,31 @@ const app = createApp({
             });
 
             if (myAllocRows.length > 0) {
-                const allowedCodes = new Set(myAllocRows.map(a => (a.employee_code || '').toString().trim()));
-                const allowedNames = new Set(myAllocRows.map(a => (a.employee_name || '').toLowerCase().trim()));
+                const allowedCodes = new Set(myAllocRows.map(a => (a.employee_code || '').toString().trim()).filter(Boolean));
+                const allowedNames = new Set(myAllocRows.map(a => (a.employee_name || '').toLowerCase().trim()).filter(Boolean));
+
+                // Always include the user themselves if they have a staff profile
+                if (myEmpCode) allowedCodes.add(myEmpCode);
+                if (myName) allowedNames.add(myName);
 
                 const filtered = staffList.value.filter(s =>
                     allowedCodes.has((s.employee_code || '').toString().trim()) ||
                     allowedNames.has((s.name || '').toLowerCase().trim())
                 );
-                return filtered.length > 0 ? filtered : staffList.value;
+                return filtered;
             }
 
-            // Fallback: If no allocation row, show user's own profile or all
+            // Fallback: If no allocation row exists in User_Allocation sheet,
+            // strictly show ONLY the user's own profile (never leak others)
             if (currentUser.value.staff) {
                 return [currentUser.value.staff];
             }
-            return staffList.value;
+
+            const selfStaff = staffList.value.filter(s =>
+                (myEmail && s.gmail && s.gmail.toLowerCase().trim() === myEmail) ||
+                (myName && s.name && s.name.toLowerCase().trim() === myName)
+            );
+            return selfStaff;
         });
 
         // Date Helpers (Timezone safe for UAE GMT+4)
@@ -804,7 +815,7 @@ const app = createApp({
                                 currentUser.value.role = uMatch.role;
                                 currentUser.value.country = uMatch.country;
                                 currentUser.value.userName = uMatch.user_name || currentUser.value.userName;
-                                localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
+                                saveUserSession(currentUser.value);
                             }
                         }
                     }
@@ -1347,13 +1358,40 @@ const app = createApp({
 
         const printReport = () => window.print();
 
+        // Avatar fallback generator
+        const getDiceBearUrl = (name) => {
+            return "https://api.dicebear.com/7.x/initials/svg?seed=" + encodeURIComponent(name || 'Staff') + "&backgroundColor=0284c7,0d9488,4f46e5&textColor=ffffff";
+        };
+
+        // Quota-safe session persistence (prevents localStorage QuotaExceededError and browser crashes)
+        const saveUserSession = (user) => {
+            if (!user) {
+                try { localStorage.removeItem('attendance_auth_user'); } catch(e){}
+                return;
+            }
+            try {
+                const cleanUser = {
+                    name: user.name,
+                    userName: user.userName,
+                    email: user.email,
+                    role: user.role,
+                    country: user.country,
+                    picture: (user.picture && !user.picture.startsWith('data:')) ? user.picture : null,
+                    exp: user.exp
+                };
+                localStorage.setItem('attendance_auth_user', JSON.stringify(cleanUser));
+            } catch (err) {
+                console.warn("[saveUserSession] Quota exceeded or storage error:", err);
+            }
+        };
+
         const openWhatsApp = (num) => {
             if (!num) return showToast("No WhatsApp number registered", "error");
             window.open(`https://wa.me/${num.replace(/\D/g, '')}`, '_blank');
         };
 
         // -------------------------------------------------------------
-        // BRANCH VISIT SCHEDULE MODULE
+        // BRANCH VISIT SCHEDULE MODULE (Multi-Staff Allocation & Conflict Prevention)
         // -------------------------------------------------------------
         const scheduleForm = ref({
             branch: '',
@@ -1362,10 +1400,50 @@ const app = createApp({
             visit_start_time: '09:00',
             visit_end_date: todayStr,
             visit_end_time: '18:00',
+            allocated_staff_list: [], // Array of employee_codes: ['1742', '3934']
             allocated_to_staff: '',
             row_index: null,
             is_editing: false
         });
+
+        // Search within staff selector for branch scheduling
+        const scheduleStaffSearchQuery = ref('');
+
+        const matchedScheduleStaffList = computed(() => {
+            const list = visibleStaffList.value;
+            if (!scheduleStaffSearchQuery.value) return list;
+            const q = scheduleStaffSearchQuery.value.toLowerCase().trim();
+            const tokens = q.split(/\s+/).filter(Boolean);
+            return list.filter(s => {
+                const haystack = `${s.name || ''} ${s.employee_code || ''} ${s.designation || ''}`.toLowerCase();
+                return tokens.every(t => haystack.includes(t));
+            });
+        });
+
+        const isStaffSelectedInSchedule = (staff) => {
+            if (!staff || !staff.employee_code) return false;
+            return scheduleForm.value.allocated_staff_list.includes(String(staff.employee_code).trim());
+        };
+
+        const toggleStaffInSchedule = (staff) => {
+            if (!staff || !staff.employee_code) return;
+            const code = String(staff.employee_code).trim();
+            const idx = scheduleForm.value.allocated_staff_list.indexOf(code);
+            if (idx > -1) {
+                scheduleForm.value.allocated_staff_list.splice(idx, 1);
+            } else {
+                scheduleForm.value.allocated_staff_list.push(code);
+            }
+        };
+
+        const selectAllStaffInSchedule = () => {
+            const allCodes = visibleStaffList.value.map(s => String(s.employee_code).trim()).filter(Boolean);
+            scheduleForm.value.allocated_staff_list = Array.from(new Set(allCodes));
+        };
+
+        const clearAllStaffInSchedule = () => {
+            scheduleForm.value.allocated_staff_list = [];
+        };
 
         // Smart Search Autocomplete for Schedule Branch (identical to Log Attendance)
         const scheduleLocationSearchQuery = ref('');
@@ -1427,9 +1505,21 @@ const app = createApp({
         };
 
         const filteredSchedules = computed(() => {
+            const allowedStaffCodes = new Set(visibleStaffList.value.map(s => String(s.employee_code).trim()));
+            const isUnrestricted = isAdmin.value || userRole.value === 'Report_Only';
+
             return schedulesList.value.filter(sc => {
+                // For non-admin, non-report users: only show schedules allocating their visible staff
+                if (!isUnrestricted) {
+                    const scStaff = sc.allocated_to_staff || '';
+                    const hasMyStaff = Array.from(allowedStaffCodes).some(code =>
+                        scStaff.includes(`(${code})`) || scStaff.includes(code)
+                    );
+                    if (!hasMyStaff) return false;
+                }
+
                 if (scheduleFilterBranch.value !== 'ALL' && sc.branch !== scheduleFilterBranch.value) return false;
-                if (scheduleFilterStaff.value !== 'ALL' && sc.allocated_to_staff !== scheduleFilterStaff.value) return false;
+                if (scheduleFilterStaff.value !== 'ALL' && !String(sc.allocated_to_staff || '').includes(scheduleFilterStaff.value)) return false;
                 if (scheduleSearchQuery.value) {
                     const tokens = scheduleSearchQuery.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
                     const haystack = `${sc.branch || ''} ${sc.location || ''} ${sc.allocated_to_staff || ''} ${sc.visit_start_date || sc.visit_date || ''} ${sc.visit_end_date || ''} ${sc.updated_by_user || ''}`.toLowerCase();
@@ -1446,21 +1536,72 @@ const app = createApp({
             if (!scheduleForm.value.visit_start_date) {
                 return showToast("Please select a Visit Start Date", "error");
             }
-            if (!scheduleForm.value.allocated_to_staff) {
-                return showToast("Please select a Staff Member", "error");
+            if (!scheduleForm.value.allocated_staff_list || scheduleForm.value.allocated_staff_list.length === 0) {
+                return showToast("Please select at least one Staff Member to allocate", "error");
             }
+
+            const startTime = scheduleForm.value.visit_start_time || '09:00';
+            const endTime = scheduleForm.value.visit_end_time || '18:00';
+            const startDate = scheduleForm.value.visit_start_date;
+            const endDate = scheduleForm.value.visit_end_date || startDate;
+
+            // Conflict Detection: A staff cannot be allocated to multiple branches on overlapping dates & times
+            const newStartMs = new Date(`${startDate} ${startTime}`.replace(/-/g, '/')).getTime();
+            const newEndMs = new Date(`${endDate} ${endTime}`.replace(/-/g, '/')).getTime();
+
+            for (const empCode of scheduleForm.value.allocated_staff_list) {
+                const staffObj = staffList.value.find(s => String(s.employee_code).trim() === empCode);
+                const staffLabel = staffObj ? `${staffObj.name} (${empCode})` : `Staff #${empCode}`;
+
+                for (const existing of schedulesList.value) {
+                    // Skip the row currently being edited
+                    if (scheduleForm.value.is_editing && String(existing.row_index) === String(scheduleForm.value.row_index)) {
+                        continue;
+                    }
+
+                    const exStaffStr = existing.allocated_to_staff || '';
+                    const isAllocated = exStaffStr.includes(`(${empCode})`) ||
+                                        exStaffStr.includes(empCode) ||
+                                        (staffObj && exStaffStr.toLowerCase().includes(staffObj.name.toLowerCase()));
+
+                    if (isAllocated && existing.branch !== scheduleForm.value.branch) {
+                        const exStartDate = existing.visit_start_date || existing.visit_date;
+                        const exStartTime = formatTimeDisplay(existing.visit_start_time || existing.visit_time) || '09:00';
+                        const exEndDate = existing.visit_end_date || exStartDate;
+                        const exEndTime = formatTimeDisplay(existing.visit_end_time) || '18:00';
+
+                        const exStartMs = new Date(`${exStartDate} ${exStartTime}`.replace(/-/g, '/')).getTime();
+                        const exEndMs = new Date(`${exEndDate} ${exEndTime}`.replace(/-/g, '/')).getTime();
+
+                        // Time overlap check: (newStart < exEnd) && (newEnd > exStart)
+                        if (newStartMs < exEndMs && newEndMs > exStartMs) {
+                            return showToast(`Conflict: ${staffLabel} is already allocated to visit "${existing.branch}" on ${exStartDate} (${exStartTime} – ${exEndTime}). One staff cannot be scheduled to multiple branches in the same time period!`, "error");
+                        }
+                    }
+                }
+            }
+
+            // Build readable comma-separated staff allocation string
+            const staffLabels = scheduleForm.value.allocated_staff_list.map(code => {
+                const s = staffList.value.find(x => String(x.employee_code).trim() === code);
+                return s ? `${s.name} (${s.employee_code})` : code;
+            });
+            const allocatedStr = staffLabels.join(', ');
+
+            loading.value = true;
+            loadingText.value = scheduleForm.value.is_editing ? "Updating branch visit schedule in Google Sheet..." : "Adding branch visit schedule to Google Sheet...";
 
             const op = scheduleForm.value.is_editing ? 'edit' : 'add';
             const payloadData = {
                 branch: scheduleForm.value.branch,
                 location: scheduleForm.value.location,
-                visit_start_date: scheduleForm.value.visit_start_date,
-                visit_start_time: scheduleForm.value.visit_start_time || '09:00',
-                visit_end_date: scheduleForm.value.visit_end_date || scheduleForm.value.visit_start_date,
-                visit_end_time: scheduleForm.value.visit_end_time || '18:00',
-                visit_date: scheduleForm.value.visit_start_date,
-                visit_time: scheduleForm.value.visit_start_time || '09:00',
-                allocated_to_staff: scheduleForm.value.allocated_to_staff
+                visit_start_date: startDate,
+                visit_start_time: startTime,
+                visit_end_date: endDate,
+                visit_end_time: endTime,
+                visit_date: startDate,
+                visit_time: startTime,
+                allocated_to_staff: allocatedStr
             };
 
             const success = await sendAdminCrud('Schedule', op, scheduleForm.value.row_index, payloadData);
@@ -1472,6 +1613,7 @@ const app = createApp({
                 scheduleForm.value.visit_start_time = '09:00';
                 scheduleForm.value.visit_end_date = todayStr;
                 scheduleForm.value.visit_end_time = '18:00';
+                scheduleForm.value.allocated_staff_list = [];
                 scheduleForm.value.allocated_to_staff = '';
                 scheduleForm.value.is_editing = false;
                 scheduleForm.value.row_index = null;
@@ -1484,15 +1626,27 @@ const app = createApp({
             scheduleLocationSearchQuery.value = sc.branch || '';
             scheduleForm.value.location = sc.location || '';
             scheduleForm.value.visit_start_date = sc.visit_start_date || sc.visit_date || todayStr;
-            scheduleForm.value.visit_start_time = sc.visit_start_time || sc.visit_time || '09:00';
+            scheduleForm.value.visit_start_time = formatTimeDisplay(sc.visit_start_time || sc.visit_time) || '09:00';
             scheduleForm.value.visit_end_date = sc.visit_end_date || scheduleForm.value.visit_start_date;
-            scheduleForm.value.visit_end_time = sc.visit_end_time || '18:00';
-            scheduleForm.value.allocated_to_staff = sc.allocated_to_staff || '';
+            scheduleForm.value.visit_end_time = formatTimeDisplay(sc.visit_end_time) || '18:00';
             scheduleForm.value.row_index = sc.row_index;
             scheduleForm.value.is_editing = true;
             showScheduleLocationDropdown.value = false;
+
+            // Parse allocated staff
+            const staffStr = sc.allocated_to_staff || '';
+            const selectedCodes = [];
+            visibleStaffList.value.forEach(s => {
+                const code = String(s.employee_code).trim();
+                if (staffStr.includes(`(${code})`) || staffStr.includes(code) || staffStr.toLowerCase().includes(s.name.toLowerCase())) {
+                    selectedCodes.push(code);
+                }
+            });
+            scheduleForm.value.allocated_staff_list = selectedCodes;
+
             const el = document.getElementById('schedule-form-card');
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            showToast(`Editing visit to ${sc.branch}. Update details and click "Update Visit Schedule".`, "info");
         };
 
         const deleteSchedule = async (sc) => {
@@ -1509,6 +1663,7 @@ const app = createApp({
             scheduleForm.value.visit_start_time = '09:00';
             scheduleForm.value.visit_end_date = todayStr;
             scheduleForm.value.visit_end_time = '18:00';
+            scheduleForm.value.allocated_staff_list = [];
             scheduleForm.value.allocated_to_staff = '';
             scheduleForm.value.is_editing = false;
             scheduleForm.value.row_index = null;
@@ -1953,7 +2108,7 @@ const app = createApp({
                         exp: tokenExp
                     };
 
-                    localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
+                    saveUserSession(currentUser.value);
                     sheetConnectionStatus.value = 'connected';
                     sheetLastSyncTime.value = new Date().toLocaleTimeString();
 
@@ -2057,7 +2212,7 @@ const app = createApp({
                             currentUser.value.country = (matchedUser.country || 'UAE').toUpperCase().trim();
                             currentUser.value.staff = matchedStaff || userData.staff || null;
 
-                            localStorage.setItem('attendance_auth_user', JSON.stringify(currentUser.value));
+                            saveUserSession(currentUser.value);
                             sheetConnectionStatus.value = 'connected';
                             sheetLastSyncTime.value = new Date().toLocaleTimeString();
 
@@ -2219,6 +2374,12 @@ const app = createApp({
             savePassportPhoto,
             // Schedule Module
             scheduleForm,
+            scheduleStaffSearchQuery,
+            matchedScheduleStaffList,
+            isStaffSelectedInSchedule,
+            toggleStaffInSchedule,
+            selectAllStaffInSchedule,
+            clearAllStaffInSchedule,
             scheduleLocationSearchQuery,
             showScheduleLocationDropdown,
             matchedScheduleLocations,
@@ -2234,6 +2395,7 @@ const app = createApp({
             deleteSchedule,
             cancelScheduleEdit,
             exportScheduleExcel,
+            getDiceBearUrl,
             // Admin Portal
             adminActiveTab,
             staffModal,
