@@ -11,7 +11,7 @@
  */
 window.APP_CONFIG = {
     // Paste your Google Apps Script Web App URL here:
-    GOOGLE_SCRIPT_URL: "https://script.google.com/macros/s/AKfycby68mBl0QGZKK4O_UKuGdDxwdt6XtrbpqNKJ6Ji9ZpKpsZzvGGxIcAagR1T_c1kzdSnZA/exec",
+    GOOGLE_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzF4rE2olCZd3YZSe81USxY4QQaF30fmo7BoS2Bh1JcaAPB3z9YH5hdhgQRrOHX6wpe6w/exec",
 
     // Google Sign-In Client ID (Google Cloud Console OAuth 2.0 Web Client ID)
     GOOGLE_CLIENT_ID: "188969693421-8ebob1ei8ks5j4dnq2j92la9mo1kqgfi.apps.googleusercontent.com",
