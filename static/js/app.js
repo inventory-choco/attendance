@@ -2191,7 +2191,6 @@ const app = createApp({
             matchedLocations,
             entryDateDayInfo,
             selectStaffForEntry,
-            quickLogDate,
             updateEntryHours,
             submitAttendanceEntry,
             syncGoogleSheet,
