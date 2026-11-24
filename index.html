@@ -1427,6 +1427,7 @@
                             <i class="fa-solid fa-link absolute left-3 top-3 text-slate-500 text-xs pointer-events-none"></i>
                             <input type="url"
                                    v-model="reportForm.sheet_link"
+                                   @paste="onReportLinkPaste($event)"
                                    @blur="handleReportLinkBlur"
                                    @input="autoFetchSheetName($event.target.value)"
                                    placeholder="https://docs.google.com/spreadsheets/d/..."

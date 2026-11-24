@@ -1725,7 +1725,7 @@ const app = createApp({
 
         const matchedReportBranches = computed(() => {
             const q = reportBranchSearchQuery.value.toLowerCase().trim();
-            const list = locationsList.value;
+            const list = sortedLocations.value;
             if (!q) return list;
             return list.filter(loc => {
                 const b = (loc.branch || '').toLowerCase();
@@ -1743,17 +1743,15 @@ const app = createApp({
         };
 
         const autoFetchSheetName = async (overrideUrl) => {
-            const url = (overrideUrl || reportForm.value.sheet_link || '').trim();
+            const rawUrl = overrideUrl !== undefined ? overrideUrl : reportForm.value.sheet_link;
+            const url = (rawUrl || '').trim();
             if (!url) return;
             const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/) || url.match(/id=([a-zA-Z0-9-_]+)/) || url.match(/^([a-zA-Z0-9-_]{25,})$/);
             if (!idMatch) return;
 
             isFetchingSheetTitle.value = true;
             try {
-                const gasUrl = SCRIPT_URL || GAS_URL;
-                const fetchUrl = `${gasUrl}?action=fetch_sheet_name&url=${encodeURIComponent(url)}`;
-                const res = await fetch(fetchUrl);
-                const data = await res.json();
+                const data = await apiGet('fetch_sheet_name', { url: url });
                 if (data && data.status === 'success' && data.sheet_name) {
                     reportForm.value.sheet_name = data.sheet_name;
                     showToast(`Detected sheet: "${data.sheet_name}"`, "info");
@@ -1761,19 +1759,32 @@ const app = createApp({
                     // If branch is not yet selected, attempt to match from title
                     if (!reportForm.value.branch_name) {
                         const lowerTitle = data.sheet_name.toLowerCase();
-                        const foundLoc = locationsList.value.find(loc => 
-                            loc.branch && lowerTitle.includes(loc.branch.toLowerCase().trim())
-                        );
+                        const foundLoc = sortedLocations.value.find(loc => {
+                            if (!loc.branch) return false;
+                            const bLower = loc.branch.toLowerCase().trim();
+                            return lowerTitle.includes(bLower) || bLower.includes(lowerTitle);
+                        });
                         if (foundLoc) {
                             reportForm.value.branch_name = foundLoc.branch;
                             reportBranchSearchQuery.value = foundLoc.branch;
                         }
                     }
+                } else if (data && data.status === 'error') {
+                    showToast(`Fetch notice: ${data.message || 'Could not auto-detect title'}`, "warning");
                 }
             } catch (err) {
                 console.warn("Could not auto-fetch sheet title:", err);
             } finally {
                 isFetchingSheetTitle.value = false;
+            }
+        };
+
+        const onReportLinkPaste = (event) => {
+            const clipboardData = event.clipboardData || window.clipboardData;
+            const pastedText = clipboardData ? clipboardData.getData('text') : '';
+            if (pastedText) {
+                reportForm.value.sheet_link = pastedText.trim();
+                setTimeout(() => autoFetchSheetName(pastedText.trim()), 50);
             }
         };
 
@@ -1862,7 +1873,7 @@ const app = createApp({
             if (!isUnrestricted && userCountry.value) {
                 const targetCountry = userCountry.value.toUpperCase().trim();
                 list = list.filter(rep => {
-                    const matchedLoc = locationsList.value.find(l => 
+                    const matchedLoc = sortedLocations.value.find(l => 
                         (l.branch || '').toLowerCase() === (rep.branch_name || '').toLowerCase()
                     );
                     if (!matchedLoc) return true;
@@ -2619,6 +2630,7 @@ const app = createApp({
             matchedReportBranches,
             selectReportBranch,
             autoFetchSheetName,
+            onReportLinkPaste,
             handleReportLinkBlur,
             saveBranchReport,
             editBranchReport,
