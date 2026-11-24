@@ -502,24 +502,88 @@ function doGet(e) {
     }
 
     // 6. Roles
+    // Headers: Role | Selected Staff Daily Breakdown | Organization Summary Table | Staff Directory | Branch Visit Schedule | Branch Reports | Admin Portal | Staff Directory (Admin) | User Access & Roles | Staff Allocation | Branches & Locations | Roles & Permissions | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
     var rolesSheet = ss.getSheetByName("Roles") || ss.getSheetByName("roles");
     var rolesList = [];
     if (rolesSheet) {
       var rolesData = rolesSheet.getDataRange().getValues();
-      for (var ro = 1; ro < rolesData.length; ro++) {
-        var rRow = rolesData[ro];
-        var rName = rRow[0] ? rRow[0].toString().trim() : "";
-        if (!rName) continue;
-        rolesList.push({
-          id: ro,
-          row_index: ro + 1,
-          role: rName,
-          entry_form: rRow[1] ? rRow[1].toString().trim() : "",
-          reports: rRow[2] ? rRow[2].toString().trim() : "",
-          download_excel: rRow[3] ? rRow[3].toString().trim() : "",
-          updated_by_user: (rRow.length > 4 && rRow[4]) ? rRow[4].toString().trim() : "",
-          updated_by_date: (rRow.length > 5 && rRow[5]) ? rRow[5].toString().trim() : ""
-        });
+      if (rolesData.length > 1) {
+        var rHeaders = rolesData[0].map(function(h) { return h ? h.toString().toLowerCase().trim() : ""; });
+
+        var colMap = {
+          daily_breakdown: findHeaderCol(rHeaders, ["daily breakdown", "selected staff daily breakdown", "attendance entry form", "entry"]),
+          summary_table: findHeaderCol(rHeaders, ["summary table", "organization summary", "summary", "reports & breakdowns", "reports"]),
+          staff_directory: findHeaderCol(rHeaders, ["staff directory", "roster", "directory"]),
+          branch_schedule: findHeaderCol(rHeaders, ["branch visit schedule", "schedule", "visit schedule"]),
+          branch_reports: findHeaderCol(rHeaders, ["branch reports", "reports sheet", "branch report"]),
+          admin_portal: findHeaderCol(rHeaders, ["admin portal", "portal"]),
+          admin_staff: findHeaderCol(rHeaders, ["staff directory (admin)", "admin staff", "staff master"]),
+          admin_users: findHeaderCol(rHeaders, ["user access & roles", "users & roles", "user access", "users"]),
+          admin_allocations: findHeaderCol(rHeaders, ["staff allocation", "user allocation", "allocations"]),
+          admin_locations: findHeaderCol(rHeaders, ["branches & locations", "locations", "branches"]),
+          admin_roles: findHeaderCol(rHeaders, ["roles & permissions", "roles"]),
+          updated_by_user: findHeaderCol(rHeaders, ["updated by user", "updated by"]),
+          updated_by_date: findHeaderCol(rHeaders, ["updated by date"])
+        };
+
+        var moduleKeys = [
+          'daily_breakdown', 'summary_table', 'staff_directory', 'branch_schedule', 'branch_reports',
+          'admin_portal', 'admin_staff', 'admin_users', 'admin_allocations', 'admin_locations', 'admin_roles'
+        ];
+
+        for (var ro = 1; ro < rolesData.length; ro++) {
+          var rRow = rolesData[ro];
+          var rName = rRow[0] ? rRow[0].toString().trim() : "";
+          if (!rName) continue;
+
+          var perms = {};
+
+          for (var m = 0; m < moduleKeys.length; m++) {
+            var mKey = moduleKeys[m];
+            var colIdx = colMap[mKey];
+            var valStr = (colIdx !== -1 && rRow.length > colIdx && rRow[colIdx]) ? rRow[colIdx].toString().trim() : "";
+            
+            // If empty and sheet was using old columns, apply smart defaults
+            if (!valStr) {
+              if (rName.toLowerCase() === "admin") {
+                valStr = "View, Edit, Delete, Download";
+              } else if (rName.toLowerCase() === "data_entry") {
+                if (mKey === "daily_breakdown" || mKey === "branch_schedule" || mKey === "branch_reports") {
+                  valStr = "View, Edit";
+                } else if (mKey === "summary_table" || mKey === "staff_directory") {
+                  valStr = "View";
+                } else {
+                  valStr = "None";
+                }
+              } else if (rName.toLowerCase() === "report_only") {
+                if (mKey.indexOf("admin") === -1) {
+                  valStr = "View, Download";
+                } else {
+                  valStr = "None";
+                }
+              } else {
+                valStr = "None";
+              }
+            }
+
+            perms[mKey] = parseActionsString(valStr);
+          }
+
+          var upUser = (colMap.updated_by_user !== -1 && rRow.length > colMap.updated_by_user && rRow[colMap.updated_by_user]) ? rRow[colMap.updated_by_user].toString().trim() : "";
+          var upDate = (colMap.updated_by_date !== -1 && rRow.length > colMap.updated_by_date && rRow[colMap.updated_by_date]) ? rRow[colMap.updated_by_date].toString().trim() : "";
+
+          rolesList.push({
+            id: ro,
+            row_index: ro + 1,
+            role: rName,
+            permissions: perms,
+            entry_form: rRow[1] ? rRow[1].toString().trim() : (perms.daily_breakdown ? perms.daily_breakdown.raw : ""),
+            reports: rRow[2] ? rRow[2].toString().trim() : (perms.summary_table ? perms.summary_table.raw : ""),
+            download_excel: rRow[3] ? rRow[3].toString().trim() : (perms.daily_breakdown && perms.daily_breakdown.download ? "Download Allowed" : "Blocked"),
+            updated_by_user: upUser || (rRow.length > 4 && rRow[4] ? rRow[4].toString().trim() : "Admin"),
+            updated_by_date: upDate || (rRow.length > 5 && rRow[5] ? rRow[5].toString().trim() : "")
+          });
+        }
       }
     }
 
@@ -917,7 +981,12 @@ function handleAdminCrud(ss, payload, tz) {
     } else if (sheetName === "Locations" || sheetName === "Location") {
       headers = ["Branch", "Country", "Emr", "Location", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Roles") {
-      headers = ["Role", "Attendance Entry Form", "View Reports & Breakdowns", "Download Excel Reports", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+      headers = [
+        "Role", "Selected Staff Daily Breakdown", "Organization Summary Table", "Staff Directory",
+        "Branch Visit Schedule", "Branch Reports", "Admin Portal", "Staff Directory (Admin)",
+        "User Access & Roles", "Staff Allocation", "Branches & Locations", "Roles & Permissions",
+        "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"
+      ];
     } else if (sheetName === "Branch_Reports" || sheetName === "branch_reports" || sheetName === "Branch Reports") {
       headers = ["Date", "Branch Name", "Google sheet Link", "Google Sheet Name", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     }
@@ -1054,11 +1123,41 @@ function handleAdminCrud(ss, payload, tz) {
       auditDate
     ];
   } else if (sheetName === "Roles") {
+    // Check if the sheet header is upgraded to 14 columns
+    var firstRow = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+    var firstRowStr = firstRow.join(" ").toLowerCase();
+    var hasGranularCols = (firstRowStr.indexOf("daily breakdown") !== -1 || firstRow.length >= 12);
+
+    if (!hasGranularCols && sheet.getLastColumn() <= 7) {
+      var fullHeaders = [
+        "Role", "Selected Staff Daily Breakdown", "Organization Summary Table", "Staff Directory",
+        "Branch Visit Schedule", "Branch Reports", "Admin Portal", "Staff Directory (Admin)",
+        "User Access & Roles", "Staff Allocation", "Branches & Locations", "Roles & Permissions",
+        "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"
+      ];
+      sheet.getRange(1, 1, 1, 14).setValues([fullHeaders]);
+      sheet.getRange(1, 1, 1, 14).setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+    }
+
+    var perms = data.permissions || {};
+    function getPVal(k, fallback) {
+      var val = perms[k] !== undefined ? perms[k] : (data[k] !== undefined ? data[k] : fallback);
+      return formatPermString(val);
+    }
+
     rowValues = [
       data.role || "",
-      data.entry_form || "",
-      data.reports || "",
-      data.download_excel || "",
+      getPVal("daily_breakdown", data.entry_form),
+      getPVal("summary_table", data.reports),
+      getPVal("staff_directory"),
+      getPVal("branch_schedule"),
+      getPVal("branch_reports"),
+      getPVal("admin_portal"),
+      getPVal("admin_staff"),
+      getPVal("admin_users"),
+      getPVal("admin_allocations"),
+      getPVal("admin_locations"),
+      getPVal("admin_roles"),
       updatedBy,
       auditDate
     ];
@@ -1208,4 +1307,63 @@ function fetchGoogleSheetName(url) {
   }
 
   return title ? title.trim() : "";
+}
+
+/**
+ * Finds a column index matching any candidate string (case-insensitive substring)
+ */
+function findHeaderCol(headers, candidates) {
+  for (var i = 0; i < headers.length; i++) {
+    var h = headers[i];
+    for (var c = 0; c < candidates.length; c++) {
+      if (h === candidates[c] || h.indexOf(candidates[c]) !== -1) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * Parses a permission string (e.g. "View, Edit, Delete, Download" or "All") into boolean flags
+ */
+function parseActionsString(str) {
+  if (!str) return { view: false, edit: false, delete: false, download: false, raw: "None" };
+  var s = str.toString().toLowerCase().trim();
+  if (s === "all" || s === "full access" || s === "full") {
+    return { view: true, edit: true, delete: true, download: true, raw: "View, Edit, Delete, Download" };
+  }
+  var v = s.indexOf("view") !== -1;
+  var e = s.indexOf("edit") !== -1;
+  var d = s.indexOf("delete") !== -1;
+  var dl = s.indexOf("download") !== -1;
+  var parts = [];
+  if (v) parts.push("View");
+  if (e) parts.push("Edit");
+  if (d) parts.push("Delete");
+  if (dl) parts.push("Download");
+  return {
+    view: v,
+    edit: e,
+    delete: d,
+    download: dl,
+    raw: parts.length > 0 ? parts.join(", ") : "None"
+  };
+}
+
+/**
+ * Formats boolean action flags or string into a clean comma-separated list
+ */
+function formatPermString(val) {
+  if (!val) return "None";
+  if (typeof val === "string") return val.trim();
+  if (typeof val === "object") {
+    var parts = [];
+    if (val.view) parts.push("View");
+    if (val.edit) parts.push("Edit");
+    if (val.delete) parts.push("Delete");
+    if (val.download) parts.push("Download");
+    return parts.length > 0 ? parts.join(", ") : "None";
+  }
+  return "None";
 }

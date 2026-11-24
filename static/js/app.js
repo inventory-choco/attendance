@@ -147,6 +147,21 @@ const app = createApp({
             throw new Error("Unable to save data to Google Sheet. Please check your connection.");
         };
 
+        // Granular Permission Modules Definition
+        const PERMISSION_MODULES = [
+            { key: 'daily_breakdown', label: 'Selected Staff Daily Breakdown', icon: 'fa-calendar-day', category: 'Main Portal', desc: 'Attendance entry form & daily shift breakdown' },
+            { key: 'summary_table', label: 'Organization Summary Table', icon: 'fa-table-list', category: 'Main Portal', desc: 'Monthly summary view of all staff hours' },
+            { key: 'staff_directory', label: 'Staff Directory', icon: 'fa-address-book', category: 'Main Portal', desc: 'Staff directory list & passport photos' },
+            { key: 'branch_schedule', label: 'Branch Visit Schedule', icon: 'fa-map-location-dot', category: 'Main Portal', desc: 'Store visit scheduling calendar & table' },
+            { key: 'branch_reports', label: 'Branch Reports', icon: 'fa-file-waveform', category: 'Main Portal', desc: 'Store Google Sheet report links' },
+            { key: 'admin_portal', label: 'Admin Portal', icon: 'fa-shield-halved', category: 'Admin Control', desc: 'Access Super Admin Control Panel' },
+            { key: 'admin_staff', label: 'Staff Directory (Admin)', icon: 'fa-users', category: 'Admin Control', desc: 'Master staff roster CRUD' },
+            { key: 'admin_users', label: 'User Access & Roles', icon: 'fa-user-gear', category: 'Admin Control', desc: 'User accounts, Gmails & role assignment' },
+            { key: 'admin_allocations', label: 'Staff Allocation', icon: 'fa-people-arrows', category: 'Admin Control', desc: 'Staff-to-supervisor allocation mapping' },
+            { key: 'admin_locations', label: 'Branches & Locations', icon: 'fa-shop', category: 'Admin Control', desc: 'Company branches, countries & emirates' },
+            { key: 'admin_roles', label: 'Roles & Permissions', icon: 'fa-key', category: 'Admin Control', desc: 'Role definitions & granular access permissions' }
+        ];
+
         // Computed Role & Permission Helpers
         const userRole = computed(() => {
             if (!currentUser.value) return '';
@@ -155,9 +170,47 @@ const app = createApp({
             if (email === 'shuhaibonly@gmail.com') return 'Admin';
             return 'Data_Entry';
         });
-        const isAdmin = computed(() => userRole.value === 'Admin');
-        const canDataEntry = computed(() => userRole.value === 'Admin' || userRole.value === 'Data_Entry');
-        const canExportReports = computed(() => userRole.value === 'Admin' || userRole.value === 'Report_Only');
+
+        const hasPermission = (moduleKey, action = 'view') => {
+            if (!currentUser.value) return false;
+            const rName = (userRole.value || '').trim();
+            if (!rName) return false;
+
+            // Admin always has full access
+            if (rName.toLowerCase() === 'admin') return true;
+
+            const matchedRole = rolesList.value.find(r =>
+                (r.role || '').toLowerCase().trim() === rName.toLowerCase()
+            );
+
+            if (matchedRole && matchedRole.permissions && matchedRole.permissions[moduleKey]) {
+                return !!matchedRole.permissions[moduleKey][action];
+            }
+
+            // Fallback presets if rolesList hasn't fully loaded
+            if (rName === 'Data_Entry') {
+                if (action === 'view') {
+                    return ['daily_breakdown', 'summary_table', 'staff_directory', 'branch_schedule', 'branch_reports'].includes(moduleKey);
+                }
+                if (action === 'edit') {
+                    return ['daily_breakdown', 'branch_schedule', 'branch_reports'].includes(moduleKey);
+                }
+                return false;
+            }
+
+            if (rName === 'Report_Only') {
+                if (action === 'view' || action === 'download') {
+                    return ['daily_breakdown', 'summary_table', 'staff_directory', 'branch_schedule', 'branch_reports'].includes(moduleKey);
+                }
+                return false;
+            }
+
+            return false;
+        };
+
+        const isAdmin = computed(() => userRole.value === 'Admin' || hasPermission('admin_portal', 'view'));
+        const canDataEntry = computed(() => hasPermission('daily_breakdown', 'edit'));
+        const canExportReports = computed(() => hasPermission('daily_breakdown', 'download'));
         const userCountry = computed(() => {
             if (!currentUser.value) return '';
             return (currentUser.value.country || '').toUpperCase().trim();
@@ -382,6 +435,25 @@ const app = createApp({
         });
 
         watch(() => entryForm.value.status, () => updateEntryHours());
+
+        // Ensure active tab is permitted for the logged-in role
+        watch([currentTab, userRole, rolesList], () => {
+            const tabPermMap = {
+                'daily': 'daily_breakdown',
+                'summary': 'summary_table',
+                'roster': 'staff_directory',
+                'schedule': 'branch_schedule',
+                'reports': 'branch_reports',
+                'admin': 'admin_portal'
+            };
+            const reqMod = tabPermMap[currentTab.value];
+            if (reqMod && !hasPermission(reqMod, 'view')) {
+                const permittedTab = ['daily', 'summary', 'roster', 'schedule', 'reports', 'admin'].find(t => 
+                    hasPermission(tabPermMap[t], 'view')
+                );
+                if (permittedTab) currentTab.value = permittedTab;
+            }
+        });
 
         // Safe Time Formatter (Eliminates 1899 Base Date strings from Google Sheets)
         const formatTimeDisplay = (timeVal) => {
@@ -1962,7 +2034,10 @@ const app = createApp({
             open: false,
             isEdit: false,
             rowIndex: null,
-            form: { role: '', entry_form: '', reports: '', download_excel: '' }
+            form: {
+                role: '',
+                permissions: {}
+            }
         });
 
         // Universal CRUD dispatcher to Google Apps Script
@@ -2179,23 +2254,89 @@ const app = createApp({
             await sendAdminCrud('Locations', 'delete', l.row_index, {});
         };
 
-        // Roles CRUD Handlers
+        // Roles CRUD Handlers & Granular Permissions Engine
+        const getDefaultPermissions = (preset = 'custom') => {
+            const perms = {};
+            PERMISSION_MODULES.forEach(mod => {
+                if (preset === 'admin') {
+                    perms[mod.key] = { view: true, edit: true, delete: true, download: true };
+                } else if (preset === 'data_entry') {
+                    const isMain = ['daily_breakdown', 'summary_table', 'staff_directory', 'branch_schedule', 'branch_reports'].includes(mod.key);
+                    const canEdit = ['daily_breakdown', 'branch_schedule', 'branch_reports'].includes(mod.key);
+                    perms[mod.key] = { view: isMain, edit: canEdit, delete: false, download: false };
+                } else if (preset === 'report_only') {
+                    const isMain = ['daily_breakdown', 'summary_table', 'staff_directory', 'branch_schedule', 'branch_reports'].includes(mod.key);
+                    perms[mod.key] = { view: isMain, edit: false, delete: false, download: isMain };
+                } else {
+                    perms[mod.key] = { view: false, edit: false, delete: false, download: false };
+                }
+            });
+            return perms;
+        };
+
         const openAddRoleModal = () => {
             roleModal.value = {
                 open: true,
                 isEdit: false,
                 rowIndex: null,
-                form: { role: '', entry_form: '✅', reports: '✅', download_excel: '✅' }
+                form: {
+                    role: '',
+                    permissions: getDefaultPermissions('data_entry')
+                }
             };
         };
 
         const openEditRoleModal = (r) => {
+            const perms = getDefaultPermissions('none');
+            if (r.permissions && typeof r.permissions === 'object') {
+                PERMISSION_MODULES.forEach(mod => {
+                    if (r.permissions[mod.key]) {
+                        perms[mod.key] = {
+                            view: !!r.permissions[mod.key].view,
+                            edit: !!r.permissions[mod.key].edit,
+                            delete: !!r.permissions[mod.key].delete,
+                            download: !!r.permissions[mod.key].download
+                        };
+                    }
+                });
+            } else {
+                if ((r.role || '').toLowerCase() === 'admin') {
+                    Object.assign(perms, getDefaultPermissions('admin'));
+                } else if ((r.role || '').toLowerCase() === 'data_entry') {
+                    Object.assign(perms, getDefaultPermissions('data_entry'));
+                } else if ((r.role || '').toLowerCase() === 'report_only') {
+                    Object.assign(perms, getDefaultPermissions('report_only'));
+                }
+            }
+
             roleModal.value = {
                 open: true,
                 isEdit: true,
                 rowIndex: r.row_index,
-                form: { role: r.role, entry_form: r.entry_form, reports: r.reports, download_excel: r.download_excel }
+                form: {
+                    role: r.role,
+                    permissions: perms
+                }
             };
+        };
+
+        const toggleRolePerm = (modKey, action) => {
+            if (!roleModal.value.form.permissions[modKey]) {
+                roleModal.value.form.permissions[modKey] = { view: false, edit: false, delete: false, download: false };
+            }
+            roleModal.value.form.permissions[modKey][action] = !roleModal.value.form.permissions[modKey][action];
+            // If edit, delete, or download is checked, view must be checked automatically
+            if (roleModal.value.form.permissions[modKey][action] && action !== 'view') {
+                roleModal.value.form.permissions[modKey].view = true;
+            }
+        };
+
+        const setRoleModuleAll = (modKey, val) => {
+            roleModal.value.form.permissions[modKey] = { view: val, edit: val, delete: val, download: val };
+        };
+
+        const applyRolePreset = (preset) => {
+            roleModal.value.form.permissions = getDefaultPermissions(preset);
         };
 
         const saveRoleModal = async () => {
@@ -2203,8 +2344,16 @@ const app = createApp({
                 return showToast("Role name is required", "error");
             }
             const op = roleModal.value.isEdit ? 'edit' : 'add';
-            const ok = await sendAdminCrud('Roles', op, roleModal.value.rowIndex, roleModal.value.form);
-            if (ok) roleModal.value.open = false;
+            const payload = {
+                role: roleModal.value.form.role.trim(),
+                permissions: roleModal.value.form.permissions
+            };
+            const ok = await sendAdminCrud('Roles', op, roleModal.value.rowIndex, payload);
+            if (ok) {
+                roleModal.value.open = false;
+                showToast(`Role "${roleModal.value.form.role}" saved successfully!`);
+                await fetchData();
+            }
         };
 
         const deleteRoleRecord = async (r) => {
@@ -2666,7 +2815,13 @@ const app = createApp({
             openAddRoleModal,
             openEditRoleModal,
             saveRoleModal,
-            deleteRoleRecord
+            deleteRoleRecord,
+            // Granular Permissions
+            PERMISSION_MODULES,
+            hasPermission,
+            toggleRolePerm,
+            setRoleModuleAll,
+            applyRolePreset
         };
     }
 });

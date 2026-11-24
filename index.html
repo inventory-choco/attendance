@@ -188,21 +188,21 @@
             <!-- Enterprise Segmented Tab Navigation -->
             <div class="py-2.5 overflow-x-auto no-scrollbar">
                 <div class="inline-flex items-center gap-1 p-1 bg-slate-950/80 rounded-2xl border border-slate-800 shadow-inner">
-                    <button @click="currentTab = 'daily'"
+                    <button v-if="hasPermission('daily_breakdown', 'view')" @click="currentTab = 'daily'"
                             class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
                             :class="currentTab === 'daily' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
                         <i class="fa-solid fa-calendar-day"></i>
                         <span>Selected Staff Daily Breakdown</span>
                     </button>
 
-                    <button @click="currentTab = 'summary'"
+                    <button v-if="hasPermission('summary_table', 'view')" @click="currentTab = 'summary'"
                             class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
                             :class="currentTab === 'summary' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
                         <i class="fa-solid fa-table-list"></i>
                         <span>Organization Summary Table</span>
                     </button>
 
-                    <button @click="currentTab = 'roster'"
+                    <button v-if="hasPermission('staff_directory', 'view')" @click="currentTab = 'roster'"
                             class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
                             :class="currentTab === 'roster' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
                         <i class="fa-solid fa-address-book"></i>
@@ -213,7 +213,7 @@
                         </span>
                     </button>
 
-                    <button @click="currentTab = 'schedule'"
+                    <button v-if="hasPermission('branch_schedule', 'view')" @click="currentTab = 'schedule'"
                             class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
                             :class="currentTab === 'schedule' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
                         <i class="fa-solid fa-map-location-dot"></i>
@@ -224,7 +224,7 @@
                         </span>
                     </button>
 
-                    <button @click="currentTab = 'reports'"
+                    <button v-if="hasPermission('branch_reports', 'view')" @click="currentTab = 'reports'"
                             class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
                             :class="currentTab === 'reports' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
                         <i class="fa-solid fa-file-waveform"></i>
@@ -235,7 +235,7 @@
                         </span>
                     </button>
 
-                    <button v-if="isAdmin" @click="currentTab = 'admin'"
+                    <button v-if="isAdmin && hasPermission('admin_portal', 'view')" @click="currentTab = 'admin'"
                             class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap ml-1"
                             :class="currentTab === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-amber-400/80 hover:text-amber-200 hover:bg-amber-500/10 border border-transparent'">
                         <i class="fa-solid fa-shield-halved"></i>
@@ -755,7 +755,7 @@
 
                 <div class="flex items-center gap-3 flex-wrap">
                     <span class="text-xs text-slate-400">Cycle: <strong class="text-slate-200">{{ reportData.cycle_label }}</strong></span>
-                    <button v-if="canExportReports" @click="exportExcel"
+                    <button v-if="hasPermission('summary_table', 'download')" @click="exportExcel"
                             :disabled="staffList.length === 0"
                             class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-2 whitespace-nowrap">
                         <i class="fa-solid fa-file-arrow-down"></i>
@@ -954,8 +954,8 @@
         <!-- ========================================================= -->
         <div v-if="currentTab === 'schedule'" class="space-y-6">
 
-            <!-- Schedule Form Card -->
-            <div id="schedule-form-card" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
+            <!-- Schedule Form Card (Only shown if user has edit permission) -->
+            <div v-if="hasPermission('branch_schedule', 'edit')" id="schedule-form-card" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-5">
                     <div>
                         <h2 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
@@ -1224,7 +1224,7 @@
                 </div>
 
                 <!-- Export Schedule Excel Button -->
-                <button @click="exportScheduleExcel" :disabled="schedulesList.length === 0"
+                <button v-if="hasPermission('branch_schedule', 'download')" @click="exportScheduleExcel" :disabled="schedulesList.length === 0"
                         class="px-4 py-2 rounded-xl bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-1.5">
                     <i class="fa-solid fa-file-excel"></i>
                     <span>Export Schedule Excel</span>
@@ -1286,12 +1286,12 @@
                                 <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">{{ sc.updated_by_date || '---' }}</td>
                                 <td class="py-3 px-4 text-center">
                                     <div class="flex items-center justify-center gap-1.5">
-                                        <button @click="editSchedule(sc)" title="Edit Visit"
+                                        <button v-if="hasPermission('branch_schedule', 'edit')" @click="editSchedule(sc)" title="Edit Visit"
                                                 class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 font-semibold text-xs transition flex items-center gap-1 border border-slate-700">
                                             <i class="fa-solid fa-pen-to-square"></i>
                                             <span>Edit</span>
                                         </button>
-                                        <button @click="deleteSchedule(sc)" title="Delete Visit"
+                                        <button v-if="hasPermission('branch_schedule', 'delete')" @click="deleteSchedule(sc)" title="Delete Visit"
                                                 class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition border border-slate-700">
                                             <i class="fa-solid fa-trash-can"></i>
                                         </button>
@@ -1316,8 +1316,8 @@
         <!-- ========================================================= -->
         <div v-if="currentTab === 'reports'" class="space-y-6">
 
-            <!-- Report Form Card -->
-            <div id="report-form-card" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
+            <!-- Report Form Card (Only shown if user has edit permission) -->
+            <div v-if="hasPermission('branch_reports', 'edit')" id="report-form-card" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-5">
                     <div>
                         <h2 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
@@ -1492,7 +1492,7 @@
                         Showing <strong class="text-emerald-400">{{ filteredBranchReports.length }}</strong> of {{ branchReportsList.length }} reports
                     </span>
 
-                    <button @click="exportBranchReportsExcel"
+                    <button v-if="hasPermission('branch_reports', 'download')" @click="exportBranchReportsExcel"
                             :disabled="filteredBranchReports.length === 0"
                             class="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 font-bold text-xs border border-slate-700 transition flex items-center gap-1.5 shadow-sm">
                         <i class="fa-solid fa-file-arrow-down text-emerald-400"></i>
@@ -1567,12 +1567,12 @@
                                 <!-- Actions -->
                                 <td class="py-3 px-4 text-center">
                                     <div class="flex items-center justify-center gap-1.5">
-                                        <button @click="editBranchReport(rep)" title="Edit Report"
+                                        <button v-if="hasPermission('branch_reports', 'edit')" @click="editBranchReport(rep)" title="Edit Report"
                                                 class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 font-semibold text-xs transition flex items-center gap-1 border border-slate-700">
                                             <i class="fa-solid fa-pen-to-square"></i>
                                             <span>Edit</span>
                                         </button>
-                                        <button @click="deleteBranchReport(rep)" title="Delete Report"
+                                        <button v-if="hasPermission('branch_reports', 'delete')" @click="deleteBranchReport(rep)" title="Delete Report"
                                                 class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition border border-slate-700">
                                             <i class="fa-solid fa-trash-can"></i>
                                         </button>
@@ -1624,35 +1624,35 @@
 
             <!-- Admin Sub-tab Navigation Pills -->
             <div class="flex space-x-2 overflow-x-auto pb-2 no-scrollbar text-xs font-semibold">
-                <button @click="adminActiveTab = 'staff'"
+                <button v-if="hasPermission('admin_staff', 'view')" @click="adminActiveTab = 'staff'"
                         class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
                         :class="adminActiveTab === 'staff' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
                     <i class="fa-solid fa-id-badge"></i>
                     <span>Staff Directory ({{ staffList.length }})</span>
                 </button>
 
-                <button @click="adminActiveTab = 'users'"
+                <button v-if="hasPermission('admin_users', 'view')" @click="adminActiveTab = 'users'"
                         class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
                         :class="adminActiveTab === 'users' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
                     <i class="fa-solid fa-users-gear"></i>
                     <span>User Access & Roles ({{ usersList.length }})</span>
                 </button>
 
-                <button @click="adminActiveTab = 'allocations'"
+                <button v-if="hasPermission('admin_allocations', 'view')" @click="adminActiveTab = 'allocations'"
                         class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
                         :class="adminActiveTab === 'allocations' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
                     <i class="fa-solid fa-sitemap"></i>
                     <span>Staff Allocation ({{ allocationsList.length }})</span>
                 </button>
 
-                <button @click="adminActiveTab = 'locations'"
+                <button v-if="hasPermission('admin_locations', 'view')" @click="adminActiveTab = 'locations'"
                         class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
                         :class="adminActiveTab === 'locations' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
                     <i class="fa-solid fa-location-dot"></i>
                     <span>Branches & Locations ({{ locations.length }})</span>
                 </button>
 
-                <button @click="adminActiveTab = 'roles'"
+                <button v-if="hasPermission('admin_roles', 'view')" @click="adminActiveTab = 'roles'"
                         class="px-4 py-2.5 rounded-xl flex items-center gap-2 transition whitespace-nowrap"
                         :class="adminActiveTab === 'roles' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-bold' : 'bg-navy-900 text-slate-400 hover:text-slate-200 border border-slate-800'">
                     <i class="fa-solid fa-user-lock"></i>
@@ -1919,10 +1919,10 @@
             <div v-if="adminActiveTab === 'roles'" class="space-y-4">
                 <div class="flex items-center justify-between">
                     <div>
-                        <h3 class="font-bold text-sm text-slate-200">Role Permissions Sheet (Roles)</h3>
-                        <p class="text-xs text-slate-400">Total: {{ rolesList.length }} permission profiles</p>
+                        <h3 class="font-bold text-sm text-slate-200">Role Permissions Matrix (Roles)</h3>
+                        <p class="text-xs text-slate-400">Total: {{ rolesList.length }} roles • Granular View, Edit, Delete & Download rights across 11 modules</p>
                     </div>
-                    <button @click="openAddRoleModal"
+                    <button v-if="hasPermission('admin_roles', 'edit')" @click="openAddRoleModal"
                             class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5">
                         <i class="fa-solid fa-plus"></i>
                         <span>Add Role</span>
@@ -1934,10 +1934,13 @@
                         <table class="w-full text-left text-xs whitespace-nowrap">
                             <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                                 <tr>
-                                    <th class="py-3 px-4">Role</th>
-                                    <th class="py-3 px-4">Attendance Entry Form</th>
-                                    <th class="py-3 px-4">View Reports & Breakdowns</th>
-                                    <th class="py-3 px-4">Download Excel Reports</th>
+                                    <th class="py-3 px-4 sticky left-0 bg-slate-950 z-10 shadow">Role</th>
+                                    <th v-for="mod in PERMISSION_MODULES" :key="mod.key" class="py-3 px-3 min-w-[145px]">
+                                        <div class="flex items-center gap-1.5 text-slate-300">
+                                            <i :class="['fa-solid', mod.icon, 'text-emerald-400 text-xs']"></i>
+                                            <span class="truncate" :title="mod.label">{{ mod.label }}</span>
+                                        </div>
+                                    </th>
                                     <th class="py-3 px-4">Updated By</th>
                                     <th class="py-3 px-4">Audit Date</th>
                                     <th class="py-3 px-4 text-center">Actions</th>
@@ -1945,20 +1948,55 @@
                             </thead>
                             <tbody class="divide-y divide-slate-800/60 font-medium">
                                 <tr v-for="r in rolesList" :key="r.role" class="hover:bg-slate-800/40 transition">
-                                    <td class="py-3 px-4 font-bold text-slate-200">{{ r.role }}</td>
-                                    <td class="py-3 px-4 text-slate-300">{{ r.entry_form }}</td>
-                                    <td class="py-3 px-4 text-slate-300">{{ r.reports }}</td>
-                                    <td class="py-3 px-4 text-slate-300">{{ r.download_excel }}</td>
-                                    <td class="py-3 px-4 text-slate-400 text-[11px]">{{ r.updated_by_user || 'Admin' }}</td>
-                                    <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">{{ r.updated_by_date || '---' }}</td>
-                                    <td class="py-3 px-4 text-center">
+                                    <td class="py-3 px-4 font-bold text-slate-200 sticky left-0 bg-navy-900 z-10 shadow">
+                                        <span class="px-2.5 py-1 rounded-full text-xs font-bold font-mono border"
+                                              :class="r.role === 'Admin' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : (r.role === 'Data_Entry' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-purple-500/20 text-purple-300 border-purple-500/30')">
+                                            {{ r.role }}
+                                        </span>
+                                    </td>
+
+                                    <!-- Module permissions pills -->
+                                    <td v-for="mod in PERMISSION_MODULES" :key="mod.key" class="py-3 px-3">
+                                        <div class="flex flex-wrap items-center gap-1">
+                                            <template v-if="r.permissions && r.permissions[mod.key]">
+                                                <span v-if="r.permissions[mod.key].view"
+                                                      class="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 text-[10px] font-bold border border-sky-500/30"
+                                                      title="Can View">View</span>
+                                                <span v-if="r.permissions[mod.key].edit"
+                                                      class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30"
+                                                      title="Can Add & Edit">Edit</span>
+                                                <span v-if="r.permissions[mod.key].delete"
+                                                      class="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px] font-bold border border-rose-500/30"
+                                                      title="Can Delete">Del</span>
+                                                <span v-if="r.permissions[mod.key].download"
+                                                      class="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-bold border border-purple-500/30"
+                                                      title="Can Download Reports">Down</span>
+                                                <span v-if="!r.permissions[mod.key].view && !r.permissions[mod.key].edit && !r.permissions[mod.key].delete && !r.permissions[mod.key].download"
+                                                      class="text-slate-500 text-[10px] italic">None</span>
+                                            </template>
+                                            <template v-else>
+                                                <span class="text-slate-500 text-[10px] italic">None</span>
+                                            </template>
+                                        </div>
+                                    </td>
+
+                                    <td class="py-3 px-4 text-slate-400 text-[11px] whitespace-nowrap">
+                                        <span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
+                                            {{ r.updated_by_user || 'Admin' }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                                        {{ r.updated_by_date || '---' }}
+                                    </td>
+                                    <td class="py-3 px-4 text-center whitespace-nowrap">
                                         <div class="flex items-center justify-center gap-1.5">
-                                            <button @click="openEditRoleModal(r)" title="Edit Role"
-                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition">
+                                            <button v-if="hasPermission('admin_roles', 'edit')" @click="openEditRoleModal(r)" title="Edit Role Permissions"
+                                                    class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 font-semibold text-xs transition flex items-center gap-1 border border-slate-700">
                                                 <i class="fa-solid fa-pen-to-square"></i>
+                                                <span>Edit</span>
                                             </button>
-                                            <button @click="deleteRoleRecord(r)" title="Delete Role"
-                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition">
+                                            <button v-if="hasPermission('admin_roles', 'delete')" @click="deleteRoleRecord(r)" title="Delete Role"
+                                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition border border-slate-700">
                                                 <i class="fa-solid fa-trash-can"></i>
                                             </button>
                                         </div>
@@ -2216,49 +2254,138 @@
         </div>
     </div>
 
-    <!-- 5. Role Modal -->
-    <div v-if="roleModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/80 backdrop-blur-sm">
-        <div class="bg-navy-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-                <h3 class="font-bold text-base text-white flex items-center gap-2">
-                    <i class="fa-solid fa-user-lock text-emerald-400"></i>
-                    <span>{{ roleModal.isEdit ? 'Edit Role Permissions' : 'Add New Role' }}</span>
-                </h3>
-                <button @click="roleModal.open = false" class="text-slate-400 hover:text-slate-200">
+    <!-- 5. Granular Role & Permissions Modal -->
+    <div v-if="roleModal.open" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/85 backdrop-blur-sm">
+        <div class="bg-navy-900 border border-slate-700 rounded-3xl w-full max-w-4xl p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-lg border border-emerald-500/20">
+                        <i class="fa-solid fa-user-lock"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-white">
+                            {{ roleModal.isEdit ? 'Edit Role Permissions Matrix' : 'Add New Role & Permissions' }}
+                        </h3>
+                        <p class="text-xs text-slate-400">Configure granular View, Edit, Delete, and Download permissions across 11 portal modules.</p>
+                    </div>
+                </div>
+                <button @click="roleModal.open = false" class="text-slate-400 hover:text-slate-200 p-1">
                     <i class="fa-solid fa-xmark text-lg"></i>
                 </button>
             </div>
 
-            <div class="space-y-3 text-xs">
-                <div>
-                    <label class="block font-semibold text-slate-300 mb-1">Role Name *</label>
-                    <input v-model="roleModal.form.role" type="text" placeholder="e.g. Supervisor"
-                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold" />
+            <!-- Modal Body (Scrollable) -->
+            <div class="space-y-4 overflow-y-auto pr-1 flex-1 text-xs">
+                <!-- Role Name & Quick Presets -->
+                <div class="bg-slate-950/70 p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex-1 max-w-xs">
+                        <label class="block font-semibold text-slate-300 mb-1">Role Name <span class="text-emerald-400">*</span></label>
+                        <input v-model="roleModal.form.role" type="text" placeholder="e.g. Supervisor, Auditor, Manager"
+                               class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold focus:border-emerald-500 focus:outline-none" />
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-400 mb-1">Quick Configuration Presets:</label>
+                        <div class="flex flex-wrap gap-1.5">
+                            <button type="button" @click="applyRolePreset('admin')"
+                                    class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 text-[11px] font-bold transition">
+                                Super Admin (All)
+                            </button>
+                            <button type="button" @click="applyRolePreset('data_entry')"
+                                    class="px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/40 text-[11px] font-bold transition">
+                                Data Entry Standard
+                            </button>
+                            <button type="button" @click="applyRolePreset('report_only')"
+                                    class="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/40 text-[11px] font-bold transition">
+                                Report Only Standard
+                            </button>
+                            <button type="button" @click="applyRolePreset('none')"
+                                    class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700 text-[11px] font-medium transition">
+                                Clear All
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <label class="block font-semibold text-slate-300 mb-1">Attendance Entry Form</label>
-                    <input v-model="roleModal.form.entry_form" type="text" placeholder="e.g. ✅ Can log attendance"
-                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-300 mb-1">View Reports & Breakdowns</label>
-                    <input v-model="roleModal.form.reports" type="text" placeholder="e.g. ✅ Full Access"
-                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-300 mb-1">Download Excel Reports</label>
-                    <input v-model="roleModal.form.download_excel" type="text" placeholder="e.g. ❌ Hidden & Blocked"
-                           class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+
+                <!-- 11 Modules Permissions Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div v-for="mod in PERMISSION_MODULES" :key="mod.key"
+                         class="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 hover:border-slate-700 transition flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between gap-2 mb-1">
+                                <div class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+                                    <i :class="['fa-solid', mod.icon, 'text-emerald-400 text-xs']"></i>
+                                    <span>{{ mod.label }}</span>
+                                </div>
+                                <span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold"
+                                      :class="mod.category === 'Main Portal' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'">
+                                    {{ mod.category }}
+                                </span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mb-2.5">{{ mod.desc }}</p>
+                        </div>
+
+                        <!-- 4 Action Toggles -->
+                        <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between gap-1 flex-wrap">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <!-- View Toggle -->
+                                <button type="button" @click="toggleRolePerm(mod.key, 'view')"
+                                        class="px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition flex items-center gap-1"
+                                        :class="roleModal.form.permissions[mod.key]?.view ? 'bg-sky-500/25 text-sky-200 border-sky-500/50 shadow-sm' : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'">
+                                    <i class="fa-solid fa-eye text-[9px]"></i>
+                                    <span>View</span>
+                                </button>
+
+                                <!-- Edit Toggle -->
+                                <button type="button" @click="toggleRolePerm(mod.key, 'edit')"
+                                        class="px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition flex items-center gap-1"
+                                        :class="roleModal.form.permissions[mod.key]?.edit ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/50 shadow-sm' : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'">
+                                    <i class="fa-solid fa-pen text-[9px]"></i>
+                                    <span>Edit</span>
+                                </button>
+
+                                <!-- Delete Toggle -->
+                                <button type="button" @click="toggleRolePerm(mod.key, 'delete')"
+                                        class="px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition flex items-center gap-1"
+                                        :class="roleModal.form.permissions[mod.key]?.delete ? 'bg-rose-500/25 text-rose-200 border-rose-500/50 shadow-sm' : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'">
+                                    <i class="fa-solid fa-trash text-[9px]"></i>
+                                    <span>Delete</span>
+                                </button>
+
+                                <!-- Download Toggle -->
+                                <button type="button" @click="toggleRolePerm(mod.key, 'download')"
+                                        class="px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition flex items-center gap-1"
+                                        :class="roleModal.form.permissions[mod.key]?.download ? 'bg-purple-500/25 text-purple-200 border-purple-500/50 shadow-sm' : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'">
+                                    <i class="fa-solid fa-download text-[9px]"></i>
+                                    <span>Download</span>
+                                </button>
+                            </div>
+
+                            <div class="flex items-center gap-1 text-[10px]">
+                                <span @click="setRoleModuleAll(mod.key, true)" class="text-slate-400 hover:text-emerald-400 cursor-pointer underline">All</span>
+                                <span class="text-slate-600">•</span>
+                                <span @click="setRoleModuleAll(mod.key, false)" class="text-slate-400 hover:text-slate-200 cursor-pointer underline">None</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-                <button @click="roleModal.open = false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition">
-                    Cancel
-                </button>
-                <button @click="saveRoleModal" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md">
-                    {{ roleModal.isEdit ? 'Update Role' : 'Save Role' }}
-                </button>
+            <!-- Modal Footer -->
+            <div class="flex items-center justify-between pt-3 border-t border-slate-800 flex-shrink-0">
+                <span class="text-[11px] text-slate-400">
+                    Changes take effect immediately across all sessions upon save.
+                </span>
+                <div class="flex items-center gap-3">
+                    <button @click="roleModal.open = false" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition">
+                        Cancel
+                    </button>
+                    <button @click="saveRoleModal" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-2">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>{{ roleModal.isEdit ? 'Update Role Permissions' : 'Save New Role' }}</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
