@@ -224,6 +224,17 @@
                         </span>
                     </button>
 
+                    <button @click="currentTab = 'reports'"
+                            class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap"
+                            :class="currentTab === 'reports' ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'">
+                        <i class="fa-solid fa-file-waveform"></i>
+                        <span>Branch Reports</span>
+                        <span class="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold"
+                              :class="currentTab === 'reports' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'">
+                            {{ branchReportsList.length }}
+                        </span>
+                    </button>
+
                     <button v-if="isAdmin" @click="currentTab = 'admin'"
                             class="px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap ml-1"
                             :class="currentTab === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-amber-400/80 hover:text-amber-200 hover:bg-amber-500/10 border border-transparent'">
@@ -1301,7 +1312,289 @@
         </div>
 
         <!-- ========================================================= -->
-        <!-- TAB 5: ADMIN PORTAL (LIVE GOOGLE SHEET MANAGEMENT)        -->
+        <!-- TAB 5: BRANCH REPORTS (GOOGLE SHEET REPORT LINKS)         -->
+        <!-- ========================================================= -->
+        <div v-if="currentTab === 'reports'" class="space-y-6">
+
+            <!-- Report Form Card -->
+            <div id="report-form-card" class="bg-navy-900 rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-2xl relative">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2 mb-5">
+                    <div>
+                        <h2 class="font-bold text-base sm:text-lg text-white flex items-center gap-2">
+                            <i class="fa-solid fa-file-waveform text-emerald-400"></i>
+                            <span>{{ reportForm.is_editing ? 'Edit Branch Report' : 'Add Branch Report' }}</span>
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Add or update Google Sheet links for branch reports. Sheet name is automatically pulled from the link.
+                        </p>
+                    </div>
+                    <span v-if="reportForm.is_editing" class="text-xs px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                        Editing Row #{{ reportForm.row_index }}
+                    </span>
+                </div>
+
+                <!-- Form Inputs Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                    
+                    <!-- 1. Report Date -->
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1.5">
+                            Report Date <span class="text-emerald-400">*</span>
+                        </label>
+                        <input type="date"
+                               v-model="reportForm.date"
+                               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono" />
+                    </div>
+
+                    <!-- 2. Smart Branch Selector -->
+                    <div class="relative">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="block font-semibold text-slate-300">
+                                Branch Name <span class="text-emerald-400">*</span>
+                            </label>
+                            <span class="text-[10px] font-mono font-semibold" :class="isAdmin ? 'text-amber-400' : 'text-emerald-400'">
+                                {{ sortedLocations.length }} Branches
+                            </span>
+                        </div>
+
+                        <div class="relative">
+                            <i class="fa-solid fa-shop absolute left-3 top-3 text-slate-500 text-xs pointer-events-none"></i>
+                            <input type="text"
+                                   v-model="reportBranchSearchQuery"
+                                   @focus="showReportBranchDropdown = true"
+                                   placeholder="Search branch (e.g. Forsan, Hamra, Barka)..."
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-16 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium" />
+
+                            <div class="absolute right-2 top-2 flex items-center gap-1.5">
+                                <button v-if="reportBranchSearchQuery"
+                                        type="button"
+                                        @click="reportBranchSearchQuery = ''; showReportBranchDropdown = true"
+                                        class="text-slate-500 hover:text-slate-300 p-1 text-xs" title="Clear Search">
+                                    <i class="fa-solid fa-circle-xmark"></i>
+                                </button>
+                                <button type="button"
+                                        @click="showReportBranchDropdown = !showReportBranchDropdown"
+                                        class="text-slate-500 hover:text-slate-300 p-1 text-xs" title="Toggle Branch List">
+                                    <i class="fa-solid fa-chevron-down text-[10px]" :class="{ 'rotate-180': showReportBranchDropdown }"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Dropdown List -->
+                        <div v-if="showReportBranchDropdown"
+                             class="absolute left-0 right-0 mt-1 bg-navy-950 border border-slate-700 rounded-2xl shadow-2xl z-40 max-h-60 overflow-y-auto divide-y divide-slate-800/80">
+                            <div v-for="loc in matchedReportBranches" :key="loc.branch"
+                                 @click="selectReportBranch(loc)"
+                                 class="p-2.5 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between transition">
+                                <div>
+                                    <div class="font-bold text-slate-100 text-xs flex items-center gap-1.5">
+                                        <span>{{ loc.branch }}</span>
+                                        <span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold"
+                                              :class="loc.country === 'OMAN' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'">
+                                            {{ loc.country || 'UAE' }}
+                                        </span>
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 mt-0.5">
+                                        {{ loc.location }} <span v-if="loc.emr">• {{ loc.emr }}</span>
+                                    </div>
+                                </div>
+                                <span v-if="reportForm.branch_name === loc.branch" class="text-emerald-400 text-xs">
+                                    <i class="fa-solid fa-check"></i>
+                                </span>
+                            </div>
+                            <div v-if="matchedReportBranches.length === 0" class="p-3 text-center text-slate-500 text-xs">
+                                No matching branches found
+                            </div>
+                        </div>
+
+                        <div v-if="reportForm.branch_name" class="mt-1 flex items-center justify-between text-[11px] text-slate-400 px-1">
+                            <span>Selected: <strong class="text-emerald-400 font-semibold">{{ reportForm.branch_name }}</strong></span>
+                        </div>
+                    </div>
+
+                    <!-- 3. Google Sheet Link -->
+                    <div class="sm:col-span-2">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="block font-semibold text-slate-300">
+                                Google Sheet Link <span class="text-emerald-400">*</span>
+                            </label>
+                            <span v-if="isFetchingSheetTitle" class="text-[10px] text-emerald-400 flex items-center gap-1">
+                                <i class="fa-solid fa-circle-notch fa-spin text-[9px]"></i>
+                                Auto-fetching sheet name...
+                            </span>
+                        </div>
+                        <div class="relative">
+                            <i class="fa-solid fa-link absolute left-3 top-3 text-slate-500 text-xs pointer-events-none"></i>
+                            <input type="url"
+                                   v-model="reportForm.sheet_link"
+                                   @blur="handleReportLinkBlur"
+                                   @input="autoFetchSheetName($event.target.value)"
+                                   placeholder="https://docs.google.com/spreadsheets/d/..."
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-20 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium" />
+                            
+                            <button type="button"
+                                    @click="autoFetchSheetName()"
+                                    :disabled="!reportForm.sheet_link || isFetchingSheetTitle"
+                                    class="absolute right-1.5 top-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold text-[11px] disabled:opacity-50 transition flex items-center gap-1 border border-slate-700">
+                                <i class="fa-solid fa-arrows-rotate text-[10px]" :class="{ 'fa-spin': isFetchingSheetTitle }"></i>
+                                <span>Fetch</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 4. Google Sheet Name (Auto-Pulled, Editable) -->
+                    <div class="sm:col-span-2 lg:col-span-4">
+                        <label class="block font-semibold text-slate-300 mb-1.5">
+                            Google Sheet Name <span class="text-slate-500 font-normal">(Auto-pulled from link, or enter manually)</span>
+                        </label>
+                        <div class="relative">
+                            <i class="fa-solid fa-file-excel absolute left-3 top-3 text-emerald-400 text-xs pointer-events-none"></i>
+                            <input type="text"
+                                   v-model="reportForm.sheet_name"
+                                   placeholder="e.g. Pure Forsan Mall 20/11/2026..."
+                                   class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-semibold" />
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Form Action Buttons -->
+                <div class="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-slate-800">
+                    <button v-if="reportForm.is_editing"
+                            type="button"
+                            @click="cancelReportEdit"
+                            class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition">
+                        Cancel
+                    </button>
+
+                    <button type="button"
+                            @click="saveBranchReport"
+                            class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition flex items-center gap-2">
+                        <i :class="reportForm.is_editing ? 'fa-solid fa-check' : 'fa-solid fa-plus'"></i>
+                        <span>{{ reportForm.is_editing ? 'Update Report' : 'Add Branch Report' }}</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Reports Filter & Search Bar -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-navy-900/60 p-4 rounded-2xl border border-slate-800">
+                <div class="relative flex-1 max-w-md">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-500 text-xs"></i>
+                    <input type="text"
+                           v-model="reportSearchQuery"
+                           placeholder="Filter reports by branch, sheet name, user, or date..."
+                           class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500 focus:outline-none" />
+                </div>
+
+                <div class="flex items-center gap-2.5 self-end sm:self-auto">
+                    <span class="text-xs text-slate-400 font-medium">
+                        Showing <strong class="text-emerald-400">{{ filteredBranchReports.length }}</strong> of {{ branchReportsList.length }} reports
+                    </span>
+
+                    <button @click="exportBranchReportsExcel"
+                            :disabled="filteredBranchReports.length === 0"
+                            class="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 font-bold text-xs border border-slate-700 transition flex items-center gap-1.5 shadow-sm">
+                        <i class="fa-solid fa-file-arrow-down text-emerald-400"></i>
+                        <span>Export Excel</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Reports Table -->
+            <div class="bg-navy-900 rounded-3xl border border-slate-800 shadow-xl overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs whitespace-nowrap">
+                        <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                            <tr>
+                                <th class="py-3 px-4">Report Date</th>
+                                <th class="py-3 px-4">Branch Name</th>
+                                <th class="py-3 px-4">Google Sheet Name</th>
+                                <th class="py-3 px-4">Google Sheet Link</th>
+                                <th class="py-3 px-4">Updated By User</th>
+                                <th class="py-3 px-4">Audit Date</th>
+                                <th class="py-3 px-4 text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60 font-medium">
+                            <tr v-for="rep in filteredBranchReports" :key="rep.row_index" class="hover:bg-slate-800/40 transition">
+                                <!-- Date -->
+                                <td class="py-3 px-4">
+                                    <div class="font-bold flex items-center gap-1.5 text-slate-100 font-mono">
+                                        <i class="fa-regular fa-calendar-check text-emerald-400"></i>
+                                        <span>{{ rep.report_date }}</span>
+                                    </div>
+                                </td>
+
+                                <!-- Branch -->
+                                <td class="py-3 px-4">
+                                    <span class="px-2.5 py-1 rounded-full bg-slate-800 text-emerald-400 font-bold text-[11px] border border-slate-700">
+                                        {{ rep.branch_name }}
+                                    </span>
+                                </td>
+
+                                <!-- Sheet Name -->
+                                <td class="py-3 px-4 font-bold text-slate-200">
+                                    <div class="flex items-center gap-2 max-w-xs truncate" :title="rep.sheet_name">
+                                        <i class="fa-solid fa-file-excel text-emerald-400 flex-shrink-0"></i>
+                                        <span class="truncate">{{ rep.sheet_name }}</span>
+                                    </div>
+                                </td>
+
+                                <!-- Sheet Link / Open Button -->
+                                <td class="py-3 px-4">
+                                    <a :href="rep.sheet_link"
+                                       target="_blank"
+                                       rel="noopener noreferrer"
+                                       class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/70 text-emerald-300 hover:text-emerald-200 border border-emerald-800/60 font-semibold text-xs transition shadow-sm">
+                                        <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                                        <span>Open Sheet</span>
+                                    </a>
+                                </td>
+
+                                <!-- Updated By User -->
+                                <td class="py-3 px-4 text-slate-400 text-[11px]">
+                                    <span class="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
+                                        {{ rep.updated_by_user || 'Admin' }}
+                                    </span>
+                                </td>
+
+                                <!-- Audit Date -->
+                                <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">
+                                    {{ rep.updated_by_date || '---' }}
+                                </td>
+
+                                <!-- Actions -->
+                                <td class="py-3 px-4 text-center">
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <button @click="editBranchReport(rep)" title="Edit Report"
+                                                class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 font-semibold text-xs transition flex items-center gap-1 border border-slate-700">
+                                            <i class="fa-solid fa-pen-to-square"></i>
+                                            <span>Edit</span>
+                                        </button>
+                                        <button @click="deleteBranchReport(rep)" title="Delete Report"
+                                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-400 transition border border-slate-700">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <tr v-if="filteredBranchReports.length === 0">
+                                <td colspan="7" class="py-10 text-center text-slate-500">
+                                    <i class="fa-regular fa-folder-open text-3xl mb-2 text-slate-600 block"></i>
+                                    <div class="text-sm font-semibold text-slate-400">No branch reports found</div>
+                                    <div class="text-xs text-slate-500 mt-1">Paste a Google Sheet link above to add your first branch report!</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ========================================================= -->
+        <!-- TAB 6: ADMIN PORTAL (LIVE GOOGLE SHEET MANAGEMENT)        -->
         <!-- ========================================================= -->
         <div v-if="currentTab === 'admin' && isAdmin" class="space-y-6">
 

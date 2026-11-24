@@ -825,6 +825,9 @@ const app = createApp({
                     if (data.schedules && Array.isArray(data.schedules)) {
                         schedulesList.value = data.schedules;
                     }
+                    if (data.branch_reports && Array.isArray(data.branch_reports)) {
+                        branchReportsList.value = data.branch_reports;
+                    }
                     if (data.roles && Array.isArray(data.roles)) {
                         rolesList.value = data.roles;
                     }
@@ -1704,6 +1707,213 @@ const app = createApp({
         };
 
         // -------------------------------------------------------------
+        // BRANCH REPORTS MODULE (Google Sheet Report Links)
+        // -------------------------------------------------------------
+        const branchReportsList = ref([]);
+        const reportForm = ref({
+            date: todayStr,
+            branch_name: '',
+            sheet_link: '',
+            sheet_name: '',
+            is_editing: false,
+            row_index: null
+        });
+        const isFetchingSheetTitle = ref(false);
+        const reportSearchQuery = ref('');
+        const reportBranchSearchQuery = ref('');
+        const showReportBranchDropdown = ref(false);
+
+        const matchedReportBranches = computed(() => {
+            const q = reportBranchSearchQuery.value.toLowerCase().trim();
+            const list = locationsList.value;
+            if (!q) return list;
+            return list.filter(loc => {
+                const b = (loc.branch || '').toLowerCase();
+                const l = (loc.location || '').toLowerCase();
+                const c = (loc.country || '').toLowerCase();
+                const e = (loc.emr || '').toLowerCase();
+                return b.includes(q) || l.includes(q) || c.includes(q) || e.includes(q);
+            });
+        });
+
+        const selectReportBranch = (loc) => {
+            reportForm.value.branch_name = loc.branch;
+            reportBranchSearchQuery.value = loc.branch;
+            showReportBranchDropdown.value = false;
+        };
+
+        const autoFetchSheetName = async (overrideUrl) => {
+            const url = (overrideUrl || reportForm.value.sheet_link || '').trim();
+            if (!url) return;
+            const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/) || url.match(/id=([a-zA-Z0-9-_]+)/) || url.match(/^([a-zA-Z0-9-_]{25,})$/);
+            if (!idMatch) return;
+
+            isFetchingSheetTitle.value = true;
+            try {
+                const gasUrl = SCRIPT_URL || GAS_URL;
+                const fetchUrl = `${gasUrl}?action=fetch_sheet_name&url=${encodeURIComponent(url)}`;
+                const res = await fetch(fetchUrl);
+                const data = await res.json();
+                if (data && data.status === 'success' && data.sheet_name) {
+                    reportForm.value.sheet_name = data.sheet_name;
+                    showToast(`Detected sheet: "${data.sheet_name}"`, "info");
+
+                    // If branch is not yet selected, attempt to match from title
+                    if (!reportForm.value.branch_name) {
+                        const lowerTitle = data.sheet_name.toLowerCase();
+                        const foundLoc = locationsList.value.find(loc => 
+                            loc.branch && lowerTitle.includes(loc.branch.toLowerCase().trim())
+                        );
+                        if (foundLoc) {
+                            reportForm.value.branch_name = foundLoc.branch;
+                            reportBranchSearchQuery.value = foundLoc.branch;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn("Could not auto-fetch sheet title:", err);
+            } finally {
+                isFetchingSheetTitle.value = false;
+            }
+        };
+
+        const handleReportLinkBlur = () => {
+            if (reportForm.value.sheet_link && !reportForm.value.sheet_name) {
+                autoFetchSheetName();
+            }
+        };
+
+        const saveBranchReport = async () => {
+            if (!reportForm.value.branch_name) {
+                return showToast("Please select a Branch for this report.", "warning");
+            }
+            if (!reportForm.value.sheet_link) {
+                return showToast("Please paste the Google Sheet Link.", "warning");
+            }
+
+            const op = reportForm.value.is_editing ? 'edit' : 'add';
+            const payloadData = {
+                report_date: reportForm.value.date || todayStr,
+                branch_name: reportForm.value.branch_name,
+                sheet_link: reportForm.value.sheet_link.trim(),
+                sheet_name: reportForm.value.sheet_name.trim() || `Branch Report (${reportForm.value.branch_name})`
+            };
+
+            const success = await sendAdminCrud('Branch_Reports', op, reportForm.value.row_index, payloadData);
+            if (success) {
+                showToast(reportForm.value.is_editing ? "Branch Report updated successfully!" : "Branch Report added successfully!");
+                reportForm.value = {
+                    date: todayStr,
+                    branch_name: '',
+                    sheet_link: '',
+                    sheet_name: '',
+                    is_editing: false,
+                    row_index: null
+                };
+                reportBranchSearchQuery.value = '';
+                showReportBranchDropdown.value = false;
+                await fetchData();
+            }
+        };
+
+        const editBranchReport = (rep) => {
+            reportForm.value.date = rep.report_date || todayStr;
+            reportForm.value.branch_name = rep.branch_name || '';
+            reportBranchSearchQuery.value = rep.branch_name || '';
+            reportForm.value.sheet_link = rep.sheet_link || '';
+            reportForm.value.sheet_name = rep.sheet_name || '';
+            reportForm.value.row_index = rep.row_index;
+            reportForm.value.is_editing = true;
+            showReportBranchDropdown.value = false;
+
+            const el = document.getElementById('report-form-card');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            showToast(`Editing report for ${rep.branch_name}.`, "info");
+        };
+
+        const cancelReportEdit = () => {
+            reportForm.value = {
+                date: todayStr,
+                branch_name: '',
+                sheet_link: '',
+                sheet_name: '',
+                is_editing: false,
+                row_index: null
+            };
+            reportBranchSearchQuery.value = '';
+            showReportBranchDropdown.value = false;
+        };
+
+        const deleteBranchReport = async (rep) => {
+            if (!confirm(`Are you sure you want to delete the report for "${rep.branch_name}" (${rep.report_date})?`)) {
+                return;
+            }
+            const success = await sendAdminCrud('Branch_Reports', 'delete', rep.row_index, {});
+            if (success) {
+                showToast("Branch Report deleted.");
+                await fetchData();
+            }
+        };
+
+        const filteredBranchReports = computed(() => {
+            let list = branchReportsList.value || [];
+            
+            const isUnrestricted = isAdmin.value || userRole.value === 'Report_Only' || userCountry.value === 'ALL';
+            if (!isUnrestricted && userCountry.value) {
+                const targetCountry = userCountry.value.toUpperCase().trim();
+                list = list.filter(rep => {
+                    const matchedLoc = locationsList.value.find(l => 
+                        (l.branch || '').toLowerCase() === (rep.branch_name || '').toLowerCase()
+                    );
+                    if (!matchedLoc) return true;
+                    const c = (matchedLoc.country || '').toUpperCase().trim();
+                    return c === targetCountry || (targetCountry === 'OMAN' && c === 'OM');
+                });
+            }
+
+            const q = reportSearchQuery.value.toLowerCase().trim();
+            if (!q) return list;
+
+            return list.filter(rep => {
+                const b = (rep.branch_name || '').toLowerCase();
+                const n = (rep.sheet_name || '').toLowerCase();
+                const d = (rep.report_date || '').toLowerCase();
+                const u = (rep.updated_by_user || '').toLowerCase();
+                return b.includes(q) || n.includes(q) || d.includes(q) || u.includes(q);
+            });
+        });
+
+        const exportBranchReportsExcel = () => {
+            if (typeof XLSX === 'undefined') {
+                return showToast("Loading Excel exporter...", "info");
+            }
+            const rows = [
+                ["BRANCH REPORTS"],
+                [`Exported On: ${new Date().toLocaleString()}`],
+                [],
+                ["Sl", "Date", "Branch Name", "Google Sheet Name", "Google Sheet Link", "Updated By User", "Updated By Date"]
+            ];
+
+            filteredBranchReports.value.forEach((rep, idx) => {
+                rows.push([
+                    idx + 1,
+                    rep.report_date,
+                    rep.branch_name,
+                    rep.sheet_name,
+                    rep.sheet_link,
+                    rep.updated_by_user,
+                    rep.updated_by_date
+                ]);
+            });
+
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(rows);
+            XLSX.utils.book_append_sheet(wb, ws, "Branch Reports");
+            XLSX.writeFile(wb, `Branch_Reports_${todayStr}.xlsx`);
+            showToast("Downloaded Branch Reports Excel!");
+        };
+
+        // -------------------------------------------------------------
         // ADMIN PORTAL & CRUD ENGINE (Direct Google Sheet Updates)
         // -------------------------------------------------------------
         const adminActiveTab = ref('staff'); // 'staff' | 'users' | 'allocations' | 'locations' | 'roles'
@@ -2069,6 +2279,7 @@ const app = createApp({
                 if (data.users && Array.isArray(data.users)) usersList.value = data.users.map(normalizeUserItem);
                 if (data.allocations && Array.isArray(data.allocations)) allocationsList.value = data.allocations;
                 if (data.schedules && Array.isArray(data.schedules)) schedulesList.value = data.schedules;
+                if (data.branch_reports && Array.isArray(data.branch_reports)) branchReportsList.value = data.branch_reports;
                 if (data.roles && Array.isArray(data.roles)) rolesList.value = data.roles;
 
                 // Match user in Users_Data
@@ -2180,6 +2391,7 @@ const app = createApp({
                         if (data.users && Array.isArray(data.users)) usersList.value = data.users.map(normalizeUserItem);
                         if (data.allocations && Array.isArray(data.allocations)) allocationsList.value = data.allocations;
                         if (data.schedules && Array.isArray(data.schedules)) schedulesList.value = data.schedules;
+                        if (data.branch_reports && Array.isArray(data.branch_reports)) branchReportsList.value = data.branch_reports;
                         if (data.roles && Array.isArray(data.roles)) rolesList.value = data.roles;
 
                         const userEmail = (userData.email || '').toLowerCase().trim();
@@ -2257,6 +2469,7 @@ const app = createApp({
             usersList.value = [];
             allocationsList.value = [];
             schedulesList.value = [];
+            branchReportsList.value = [];
             rolesList.value = [];
             entryForm.value.staff_name = '';
             entryForm.value.employee_code = '';
@@ -2396,6 +2609,23 @@ const app = createApp({
             cancelScheduleEdit,
             exportScheduleExcel,
             getDiceBearUrl,
+            // Branch Reports Module
+            branchReportsList,
+            reportForm,
+            isFetchingSheetTitle,
+            reportSearchQuery,
+            reportBranchSearchQuery,
+            showReportBranchDropdown,
+            matchedReportBranches,
+            selectReportBranch,
+            autoFetchSheetName,
+            handleReportLinkBlur,
+            saveBranchReport,
+            editBranchReport,
+            cancelReportEdit,
+            deleteBranchReport,
+            filteredBranchReports,
+            exportBranchReportsExcel,
             // Admin Portal
             adminActiveTab,
             staffModal,

@@ -139,6 +139,17 @@ function doGet(e) {
     }
   }
 
+  // Support Fetch Sheet Name via GET
+  if (action === "fetch_sheet_name" || action === "get_sheet_name") {
+    try {
+      var targetUrl = params.url || params.link || "";
+      var resolvedTitle = fetchGoogleSheetName(targetUrl);
+      return createJsonResponse({ status: "success", sheet_name: resolvedTitle });
+    } catch (err) {
+      return createJsonResponse({ status: "error", message: "Fetch sheet name error: " + err.toString() });
+    }
+  }
+
   try {
     // 1. Staff_data
     // Columns: Sl. No. | Employee Code | Employee Name | Designation | Allocated to | Whatsapp | IMAGE | Gmail | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
@@ -512,7 +523,64 @@ function doGet(e) {
       }
     }
 
-    // 7. Attendance_data
+    // 7. Branch_Reports
+    // Columns: Date | Branch Name | Google sheet Link | Google Sheet Name | Updated By User | Updated By date [dd:mm:yy hh:mm:ss]
+    var repSheet = ss.getSheetByName("Branch_Reports") || ss.getSheetByName("branch_reports") || ss.getSheetByName("Branch Reports");
+    var branchReportsList = [];
+    if (repSheet) {
+      var repData = repSheet.getDataRange().getValues();
+      if (repData.length > 1) {
+        var rHeaders = repData[0].map(function(h) { return h ? h.toString().toLowerCase().trim() : ""; });
+        var colRDate = -1;
+        var colRBranch = -1;
+        var colRLink = -1;
+        var colRName = -1;
+        var colRUpUser = -1;
+        var colRUpDate = -1;
+
+        for (var ri = 0; ri < rHeaders.length; ri++) {
+          var rh = rHeaders[ri];
+          if (rh.indexOf("date") !== -1 && rh.indexOf("updated") === -1) colRDate = ri;
+          else if (rh.indexOf("branch") !== -1) colRBranch = ri;
+          else if (rh.indexOf("link") !== -1 || rh.indexOf("url") !== -1) colRLink = ri;
+          else if (rh.indexOf("sheet name") !== -1 || (rh.indexOf("name") !== -1 && rh.indexOf("branch") === -1)) colRName = ri;
+          else if (rh.indexOf("updated by user") !== -1 || rh.indexOf("updated by") !== -1) colRUpUser = ri;
+          else if (rh.indexOf("updated by date") !== -1) colRUpDate = ri;
+        }
+
+        if (colRDate === -1) colRDate = 0;
+        if (colRBranch === -1) colRBranch = 1;
+        if (colRLink === -1) colRLink = 2;
+        if (colRName === -1) colRName = 3;
+        if (colRUpUser === -1) colRUpUser = 4;
+        if (colRUpDate === -1) colRUpDate = 5;
+
+        for (var r = 1; r < repData.length; r++) {
+          var rRow = repData[r];
+          var rDate = (colRDate !== -1 && rRow[colRDate]) ? formatDateSafe(rRow[colRDate], tz) : "";
+          var rBranch = (colRBranch !== -1 && rRow[colRBranch]) ? rRow[colRBranch].toString().trim() : "";
+          var rLink = (colRLink !== -1 && rRow[colRLink]) ? rRow[colRLink].toString().trim() : "";
+          var rName = (colRName !== -1 && rRow[colRName]) ? rRow[colRName].toString().trim() : "";
+          var rUpUser = (colRUpUser !== -1 && rRow[colRUpUser]) ? rRow[colRUpUser].toString().trim() : "";
+          var rUpDate = (colRUpDate !== -1 && rRow[colRUpDate]) ? rRow[colRUpDate].toString().trim() : "";
+
+          if (!rDate && !rBranch && !rLink) continue;
+
+          branchReportsList.push({
+            id: r,
+            row_index: r + 1,
+            report_date: rDate,
+            branch_name: rBranch,
+            sheet_link: rLink,
+            sheet_name: rName || "Google Sheet",
+            updated_by_user: rUpUser,
+            updated_by_date: rUpDate
+          });
+        }
+      }
+    }
+
+    // 8. Attendance_data
     var attSheet = ss.getSheetByName("Attendance_data");
     var logsList = [];
     if (attSheet) {
@@ -557,6 +625,8 @@ function doGet(e) {
       locations: locList,
       roles_count: rolesList.length,
       roles: rolesList,
+      branch_reports_count: branchReportsList.length,
+      branch_reports: branchReportsList,
       attendance_count: logsList.length,
       attendance: logsList
     });
@@ -596,6 +666,12 @@ function doPost(e) {
     }
 
     var action = payload.action || "log_attendance";
+
+    if (action === "fetch_sheet_name" || action === "get_sheet_name") {
+      var targetUrl = payload.url || payload.link || "";
+      var resolvedTitle = fetchGoogleSheetName(targetUrl);
+      return createJsonResponse({ status: "success", sheet_name: resolvedTitle });
+    }
 
     if (action === "log_attendance") {
       return handleLogAttendance(ss, payload, tz);
@@ -842,6 +918,8 @@ function handleAdminCrud(ss, payload, tz) {
       headers = ["Branch", "Country", "Emr", "Location", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     } else if (sheetName === "Roles") {
       headers = ["Role", "Attendance Entry Form", "View Reports & Breakdowns", "Download Excel Reports", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
+    } else if (sheetName === "Branch_Reports" || sheetName === "branch_reports" || sheetName === "Branch Reports") {
+      headers = ["Date", "Branch Name", "Google sheet Link", "Google Sheet Name", "Updated By User", "Updated By date [dd:mm:yy hh:mm:ss]"];
     }
     if (headers.length > 0) {
       sheet.appendRow(headers);
@@ -984,6 +1062,24 @@ function handleAdminCrud(ss, payload, tz) {
       updatedBy,
       auditDate
     ];
+  } else if (sheetName === "Branch_Reports" || sheetName === "branch_reports" || sheetName === "Branch Reports") {
+    var bLink = (data.sheet_link || data.link || "").toString().trim();
+    var bName = (data.sheet_name || "").toString().trim();
+    if (!bName && bLink) {
+      bName = fetchGoogleSheetName(bLink);
+    }
+    if (!bName && bLink) {
+      bName = "Branch Report (" + (data.branch_name || "Sheet") + ")";
+    }
+
+    rowValues = [
+      data.report_date || data.date || formatDateSafe(new Date(), tz),
+      data.branch_name || data.branch || "",
+      bLink,
+      bName,
+      updatedBy,
+      auditDate
+    ];
   } else {
     return createJsonResponse({ status: "error", message: "Unsupported sheet for CRUD: " + sheetName });
   }
@@ -1067,4 +1163,49 @@ function dailyMaintenance() {
   if (targetSheet) {
     pruneOldAttendanceRecords(targetSheet, Session.getScriptTimeZone());
   }
+}
+
+/**
+ * Helper to extract Google Sheet / Document Title from URL
+ */
+function fetchGoogleSheetName(url) {
+  if (!url || typeof url !== "string") return "";
+  url = url.trim();
+  var idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/) || url.match(/id=([a-zA-Z0-9-_]+)/) || url.match(/^([a-zA-Z0-9-_]{25,})$/);
+  if (!idMatch || !idMatch[1]) return "";
+  var sheetId = idMatch[1];
+  var title = "";
+
+  // 1. Try SpreadsheetApp
+  try {
+    var ss = SpreadsheetApp.openById(sheetId);
+    if (ss) title = ss.getName();
+  } catch(e) {}
+
+  // 2. Try DriveApp
+  if (!title) {
+    try {
+      var file = DriveApp.getFileById(sheetId);
+      if (file) title = file.getName();
+    } catch(e) {}
+  }
+
+  // 3. Try UrlFetchApp to extract <title> tag
+  if (!title) {
+    try {
+      var resp = UrlFetchApp.fetch("https://docs.google.com/spreadsheets/d/" + sheetId + "/edit", {
+        muteHttpExceptions: true,
+        followRedirects: true
+      });
+      if (resp && resp.getResponseCode() === 200) {
+        var html = resp.getContentText();
+        var tMatch = html.match(/<title>([^<]+)<\/title>/i);
+        if (tMatch && tMatch[1]) {
+          title = tMatch[1].replace(/\s*[-–—|]\s*(Google Sheets|Google Drive|جداول بيانات Google|Google Docs).*$/i, "").trim();
+        }
+      }
+    } catch(e) {}
+  }
+
+  return title ? title.trim() : "";
 }
